@@ -100,7 +100,9 @@ export function TextviewerDock(
   // Dock geometry: whole-dock expand, transient (refresh restores the
   // defaults), like the official widths. "Collapsed" means HIDDEN — the
   // panel disappears completely and reopens only through a file click.
-  const [expanded, setExpanded] = useState(true)
+  // Default hidden: with no file opened yet there is nothing to show (the
+  // first file click brings the panel up).
+  const [expanded, setExpanded] = useState(false)
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const [dragging, setDragging] = useState(false)
   const dragWidth = useRef<{ startX: number; startWidth: number; lastWidth: number } | null>(null)
