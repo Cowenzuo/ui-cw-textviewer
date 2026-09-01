@@ -192,7 +192,10 @@ export function TextviewerDock(
         bottom: `var(${TERMINAL_HEIGHT_VAR}, 0px)`,
         // Left of the fileexplorer dock (absent sibling → flush to the edge).
         right: `calc(var(${FILEEXPLORER_WIDTH_VAR}, 0px))`,
-        height: '100vh', // explicit full height: the rail's vertical centering depends on it
+        // NO explicit height: with top AND bottom both set, an explicit
+        // height would win the over-constrained box and pin the panel to
+        // full height — silently ignoring the terminal yield below (the
+        // collapsed-terminal coverage regression was exactly that).
         // One step BELOW the sibling fileexplorer dock (30): our right edge
         // abuts its left-edge width-drag divider (a 7px hover strip that
         // reaches 3px across the boundary) — painting under it keeps that
