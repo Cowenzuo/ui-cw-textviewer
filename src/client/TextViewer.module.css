@@ -1,0 +1,195 @@
+/* Text viewer region: header meta row + scroll body. Follows the official
+   web-styling system: semantic --dsw-* tokens only, no literal colors. */
+
+.infoRow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 6px 0 10px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  min-width: 0;
+}
+
+.infoName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.infoMeta {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 10px;
+  box-sizing: border-box;
+  /* Scrollbars follow the theme like the official sidebar's. */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+/* Plain-text fallback (txt / unknown extensions): no wrap, horizontal
+   scroll — a text file's line structure stays visible. */
+.plain {
+  margin: 0;
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-primary);
+  white-space: pre;
+}
+
+/* Shiki code block: line numbers via a CSS counter (shiki emits one
+   span.line per line; token colors are the active theme's inline styles). */
+.code {
+  counter-reset: dsh-code-line;
+}
+
+.code :global(.line)::before {
+  display: inline-block;
+  width: 2.4em;
+  margin-right: 1em;
+  padding-right: 0.8em;
+  text-align: right;
+  box-sizing: border-box;
+  color: var(--dsw-alias-label-tertiary);
+  content: counter(dsh-code-line);
+  counter-increment: dsh-code-line;
+  user-select: none;
+  opacity: 0.65;
+}
+
+/* Markdown rendering: GFM structure with the dock's tokens. */
+.md {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--dsw-alias-label-primary);
+}
+
+.md :global(h1),
+.md :global(h2),
+.md :global(h3),
+.md :global(h4) {
+  margin: 14px 0 8px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.md :global(h1) {
+  font-size: 20px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.md :global(h2) {
+  font-size: 17px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.md :global(h3) {
+  font-size: 15px;
+}
+
+.md :global(p) {
+  margin: 8px 0;
+}
+
+.md :global(ul),
+.md :global(ol) {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+
+.md :global(li) {
+  margin: 3px 0;
+}
+
+.md :global(a) {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.md :global(code) {
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.md :global(pre) {
+  margin: 10px 0;
+  padding: 10px 12px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  border-radius: 8px;
+  overflow: auto;
+}
+
+.md :global(pre code) {
+  background: none;
+  padding: 0;
+}
+
+.md :global(blockquote) {
+  margin: 8px 0;
+  padding: 2px 12px;
+  border-left: 3px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.md :global(table) {
+  border-collapse: collapse;
+  margin: 10px 0;
+}
+
+.md :global(th),
+.md :global(td) {
+  border: 1px solid var(--dsw-alias-border-l2);
+  padding: 5px 10px;
+}
+
+.md :global(th) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.md :global(hr) {
+  border: none;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  margin: 14px 0;
+}
+
+.md :global(img) {
+  max-width: 100%;
+}
+
+/* Bottom hint under chunked content. */
+.moreHint {
+  flex: none;
+  padding: 6px 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  text-align: center;
+}
+
+.message {
+  flex: none; /* states stay readable when the region squeezes */
+  padding: 8px 10px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
