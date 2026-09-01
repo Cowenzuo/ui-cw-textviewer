@@ -1,4 +1,4 @@
-# publish.ps1 — 一键打包发布 ui-cw-textviewer 到 dsh profile
+﻿# publish.ps1 — 一键打包发布 ui-cw-textviewer 到 dsh profile
 #
 # 流程：pnpm build → pnpm test → npm pack → 复制罐头到 profile/vendor
 #      → 更新 profile package.json 依赖（相对路径 file:./vendor/...）
