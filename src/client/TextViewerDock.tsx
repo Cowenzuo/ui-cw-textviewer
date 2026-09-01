@@ -14,10 +14,7 @@
  * vertically centered expand arrow. All data arrives through props.
  */
 import { useEffect, useRef, useState } from 'react'
-import {
-  IconChevronLeftOutline14,
-  IconChevronRightOutline14,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronRightOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS } from './locales.ts'
 import type { TextviewerOpenEvent } from '../contract.ts'
@@ -39,8 +36,6 @@ const DEFAULT_WIDTH = 380
 /** Expanded width drag bounds. */
 const MIN_WIDTH = 200
 const MAX_WIDTH = 720
-/** Collapsed rail width: a slim vertical tab keeps the expand affordance visible. */
-const RAIL_WIDTH = 28
 /** CSS variables: this dock's width, the sibling fileexplorer dock's width,
  * and the terminal dock's height (published on the document root — see
  * ui-cw-terminal's publishHeight). */
@@ -54,24 +49,12 @@ const TERMINAL_HEIGHT_VAR = '--dsh-terminal-height'
  * click threshold) or a click with a live selection does nothing — copying a
  * path out of the title must never collapse the panel. Inside controls stop
  * propagation, so the collapse button keeps its own behavior.
+ *
+ * NOTE: unused by the viewer dock today — hiding the viewer means it
+ * disappears entirely (reopening happens ONLY through a file click in the
+ * explorer), so an accidental title-row click would strand the user; the
+ * collapse button is the only hide affordance.
  */
-function useTitleClick(toggle: () => void): {
-  onPointerDown: (event: React.PointerEvent) => void
-  onClick: (event: React.MouseEvent) => void
-} {
-  const downRef = useRef<{ x: number; y: number } | null>(null)
-  return {
-    onPointerDown: (event) => { downRef.current = { x: event.clientX, y: event.clientY } },
-    onClick: (event) => {
-      const selection = window.getSelection()
-      if (selection !== null && selection.toString() !== '') return
-      const start = downRef.current
-      downRef.current = null
-      if (start !== null && Math.abs(event.clientX - start.x) + Math.abs(event.clientY - start.y) > 4) return
-      toggle()
-    },
-  }
-}
 
 /** Current dark/light palette: ui-layout projects it onto body. */
 function useDark(): boolean {
@@ -88,7 +71,7 @@ function useDark(): boolean {
 
 /** Root-level push stylesheet: the official UI yields to BOTH right docks. */
 const PUSH_CSS = [
-  `:root { ${WIDTH_VAR}: ${RAIL_WIDTH}px; }`,
+  `:root { ${WIDTH_VAR}: 0px; }`,
   // Combined margin: this dock reads the fileexplorer dock's width variable,
   // so the two push the conversation together (each falls back to 0 when the
   // sibling plugin is absent). The !important beats the sibling's own plain
@@ -99,7 +82,7 @@ const PUSH_CSS = [
 ].join('\n')
 
 /**
- * The dock: collapse rail ⇄ expanded viewer layout.
+ * The dock: hidden (until the next file click) ⇄ expanded viewer layout.
  * @param props - slot runtime + register inject face + locale.
  */
 export function TextviewerDock(
@@ -112,12 +95,12 @@ export function TextviewerDock(
   const dark = useDark()
 
   // Dock geometry: whole-dock expand, transient (refresh restores the
-  // defaults), like the official widths.
+  // defaults), like the official widths. "Collapsed" means HIDDEN — the
+  // panel disappears completely and reopens only through a file click.
   const [expanded, setExpanded] = useState(true)
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const [dragging, setDragging] = useState(false)
   const dragWidth = useRef<{ startX: number; startWidth: number; lastWidth: number } | null>(null)
-  const titleClick = useTitleClick(() => setExpanded(false))
   const panelRef = useRef<HTMLDivElement>(null)
   // Latest open handler behind a stable subscription (inject-face identities
   // must not force re-subscribes on every render).
@@ -125,6 +108,9 @@ export function TextviewerDock(
   // The last opened target: re-clicking the same file must not reload.
   const lastOpenRef = useRef<{ root: string; path: string } | null>(null)
   openHandlerRef.current = (file) => {
+    // ANY file click re-opens the hidden panel (the hide affordance is the
+    // button only — no rail, no title-row toggle to come back from).
+    setExpanded(true)
     if (lastOpenRef.current !== null
       && lastOpenRef.current.root === file.root && lastOpenRef.current.path === file.path) return
     lastOpenRef.current = { root: file.root, path: file.path }
@@ -141,12 +127,12 @@ export function TextviewerDock(
     return () => { style.remove() }
   }, [])
 
-  // Publish the push width: expanded pushes by the panel width, collapsed by
-  // the rail width (the rail still occupies that strip, so consumers must not
-  // see 0 — a bottom dock reading this variable would otherwise cover it).
+  // Publish the push width: expanded pushes by the panel width, hidden
+  // contributes NOTHING (the conversation rolls back fully — no rail strip
+  // remains, reopening happens only through a file click).
   useEffect(() => {
     if (dragging) return // the drag loop writes the variable directly
-    document.documentElement.style.setProperty(WIDTH_VAR, expanded ? `${width}px` : `${RAIL_WIDTH}px`)
+    document.documentElement.style.setProperty(WIDTH_VAR, expanded ? `${width}px` : '0px')
   }, [expanded, width, dragging])
 
   /** Write the current drag width straight to the DOM (zero React renders). */
@@ -201,13 +187,13 @@ export function TextviewerDock(
         // reaches 3px across the boundary) — painting under it keeps that
         // strip fully interactive instead of covering its outer 3px.
         zIndex: 29,
-        display: 'flex',
+        display: expanded ? 'flex' : 'none',
         flexDirection: 'column',
         boxSizing: 'border-box',
         overflow: 'hidden',
-        width: expanded ? width : RAIL_WIDTH,
-        // The transition animates collapse/expand and re-arms after a drag;
-        // while dragging it is off so the pointer feels 1:1.
+        width: expanded ? width : 0,
+        // The transition animates expand and re-arms after a drag; while
+        // dragging it is off so the pointer feels 1:1.
         transition: dragging ? 'none' : 'width 160ms ease',
       }}
     >
@@ -223,23 +209,13 @@ export function TextviewerDock(
           onPointerCancel={onWidthPointerUp}
         />
       )}
-      {!expanded && (
-        <div className={css.rail}>
-          <button
-            type="button"
-            className={css.railButton}
-            aria-label={t('expand.label')}
-            title={t('expand.label')}
-            onClick={() => { setExpanded(true) }}
-          >
-            <IconChevronLeftOutline14 size={14} />
-          </button>
-        </div>
-      )}
       {expanded && (
         <>
-          <div className={css.titleRow} {...titleClick}>
-            {/* The opened file's name IS the title; the full path answers hover. */}
+          <div className={css.titleRow}>
+            {/* The opened file's name IS the title; the full path answers hover.
+                No whole-row click: hiding the viewer strands the user until
+                the next file click, so the button below is the only hide
+                affordance. */}
             <div className={css.title} title={opened?.path}>{opened === null ? t('view.title') : opened.name}</div>
             <button
               type="button"
@@ -247,7 +223,7 @@ export function TextviewerDock(
               aria-expanded={expanded}
               aria-label={t('collapse.label')}
               title={t('collapse.label')}
-              onClick={(event) => { event.stopPropagation(); setExpanded(false) }}
+              onClick={() => { setExpanded(false) }}
             >
               <IconChevronRightOutline14 size={14} />
             </button>

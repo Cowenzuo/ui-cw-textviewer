@@ -7,8 +7,7 @@ export const NS = 'ui-cw-textviewer'
 
 export const zh = {
   'view.title': '文本查看器',
-  'collapse.label': '收起面板',
-  'expand.label': '展开面板',
+  'collapse.label': '隐藏面板',
   'divider.label': '调整宽度',
   'viewer.title': '预览',
   'viewer.empty': '在文件工作台点击文件查看',
@@ -21,8 +20,7 @@ export const zh = {
 
 export const en: Record<keyof typeof zh, string> = {
   'view.title': 'Text Viewer',
-  'collapse.label': 'Collapse panel',
-  'expand.label': 'Expand panel',
+  'collapse.label': 'Hide panel',
   'divider.label': 'Resize',
   'viewer.title': 'Preview',
   'viewer.empty': 'Click a file in the file explorer to view it',

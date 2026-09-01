@@ -46,37 +46,13 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* Collapsed rail: the panel's full-height background IS the collapsed bar —
-   the arrow sits directly on it, vertically centered, with no extra button
-   block (the visual reference must be the bar itself, not a nested chip). */
-.rail {
-  flex: 1;
-  height: 100%; /* belt and braces on top of flex: the panel is explicit 100vh */
-  display: flex;
-  align-items: center; /* vertical center of the whole collapsed bar */
-  justify-content: center;
-  min-width: 0;
-}
+/* Collapsed rail rules were removed: hiding the viewer means it disappears
+   completely (display:none, zero push) — reopening happens only through a
+   file click in the explorer, never through a rail affordance. */
 
-.railButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  border: none;
-  padding: 0;
-  background: transparent; /* no nested background block */
-  color: var(--dsw-alias-label-secondary);
-  cursor: pointer;
-}
-
-.railButton:hover {
-  color: var(--dsw-alias-label-primary);
-}
-
-/* Title bar: compact caption row with the collapse control at the right.
-   The whole row toggles the dock (selection/drag-safe click handling). */
+/* Title bar: compact caption row with the hide control at the right.
+   The row itself is NOT clickable — hiding strands the user until the next
+   file click, so the button is the only hide affordance. */
 .titleRow {
   flex: none;
   display: flex;
@@ -86,7 +62,7 @@
   padding: 0 6px 0 10px;
   box-sizing: border-box;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
-  cursor: pointer;
+  /* Not clickable: the hide button is the only hide affordance. */
 }
 
 .title {
