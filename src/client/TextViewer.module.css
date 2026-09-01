@@ -1,37 +1,6 @@
 /* Text viewer region: header meta row + scroll body. Follows the official
    web-styling system: semantic --dsw-* tokens only, no literal colors. */
 
-.infoRow {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 6px 0 10px;
-  box-sizing: border-box;
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
-  min-width: 0;
-}
-
-.infoName {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--dsw-alias-label-primary);
-}
-
-.infoMeta {
-  flex: none;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  line-height: 16px;
-  white-space: nowrap;
-}
-
 .scroll {
   flex: 1;
   min-height: 0;
@@ -41,6 +10,29 @@
   /* Scrollbars follow the theme like the official sidebar's. */
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+/* Bottom status bar: the file's format meta (encoding · size · partial). */
+.statusBar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  min-width: 0;
+}
+
+.statusText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
 }
 
 /* Plain-text fallback (txt / unknown extensions): no wrap, horizontal

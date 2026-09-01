@@ -41,9 +41,12 @@ const MIN_WIDTH = 200
 const MAX_WIDTH = 720
 /** Collapsed rail width: a slim vertical tab keeps the expand affordance visible. */
 const RAIL_WIDTH = 28
-/** CSS variables: this dock's width, and the sibling fileexplorer dock's width. */
+/** CSS variables: this dock's width, the sibling fileexplorer dock's width,
+ * and the terminal dock's height (published on the document root — see
+ * ui-cw-terminal's publishHeight). */
 const WIDTH_VAR = '--dsh-textviewer-width'
 const FILEEXPLORER_WIDTH_VAR = '--dsh-fileexplorer-width'
+const TERMINAL_HEIGHT_VAR = '--dsh-terminal-height'
 
 /**
  * Seamless title-bar toggle: the whole title row collapses/expands on click,
@@ -183,7 +186,10 @@ export function TextviewerDock(
       style={{
         position: 'fixed',
         top: 0,
-        bottom: 0,
+        // Yield to the bottom terminal dock: the viewer ends where the
+        // terminal begins and rises as the terminal expands (the height is
+        // published on the document root by ui-cw-terminal).
+        bottom: `var(${TERMINAL_HEIGHT_VAR}, 0px)`,
         // Left of the fileexplorer dock (absent sibling → flush to the edge).
         right: `calc(var(${FILEEXPLORER_WIDTH_VAR}, 0px))`,
         height: '100vh', // explicit full height: the rail's vertical centering depends on it
@@ -230,7 +236,8 @@ export function TextviewerDock(
       {expanded && (
         <>
           <div className={css.titleRow} {...titleClick}>
-            <div className={css.title}>{t('view.title')}</div>
+            {/* The opened file's name IS the title; the full path answers hover. */}
+            <div className={css.title} title={opened?.path}>{opened === null ? t('view.title') : opened.name}</div>
             <button
               type="button"
               className={css.toggle}

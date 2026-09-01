@@ -228,14 +228,6 @@ export function TextViewer(props: {
 
   return (
     <>
-      <div className={css.infoRow}>
-        <span className={css.infoName} title={file?.path}>{file === null ? t('viewer.title') : file.name}</span>
-        {meta !== null && (
-          <span className={css.infoMeta}>
-            {`${meta.encoding} · ${formatSize(meta.size)}${meta.truncated ? ' · 部分' : ''}`}
-          </span>
-        )}
-      </div>
       {file === null ? (
         <div className={css.message}>{t('viewer.empty')}</div>
       ) : error !== null ? (
@@ -256,6 +248,15 @@ export function TextViewer(props: {
           {rendererDown && <div className={css.moreHint}>{t('error.load')}</div>}
           {meta.truncated && !tooLarge && <div className={css.moreHint}>{t('viewer.more')}</div>}
           {tooLarge && <div className={css.moreHint}>{t('viewer.too-large')}</div>}
+        </div>
+      )}
+      {/* Bottom status bar: the file format meta (the header row is gone —
+          the file name lives in the dock title). */}
+      {meta !== null && (
+        <div className={css.statusBar}>
+          <span className={css.statusText}>
+            {`${meta.encoding} · ${formatSize(meta.size)}${meta.truncated ? ' · 部分' : ''}`}
+          </span>
         </div>
       )}
     </>

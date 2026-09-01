@@ -3,7 +3,9 @@
    ui-theme indirection pair so the thumb follows the active theme. */
 
 .panel {
-  background: var(--dsw-specific-sidebar-fill);
+  /* The conversation area's surface, NOT the sidebar fill: the viewer reads
+     like part of the chat, not part of the file list. */
+  background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-primary);
   border-left: 1px solid var(--dsw-alias-border-l2);
   font-size: 13px;
