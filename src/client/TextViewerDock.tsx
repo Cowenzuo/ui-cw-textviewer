@@ -278,7 +278,12 @@ export function TextviewerDock(
             ) : (
               <TextViewer
                 root={opened.root}
-                file={{ name: opened.name, path: opened.path }}
+                // Pass the STATE OBJECT itself, never a fresh literal: the
+                // viewer's reload effect keys on the file's identity, and any
+                // dock re-render (width drag, sidebar measurement, theme
+                // flip) would otherwise fabricate a "new file" and reset the
+                // content — the drag-flicker regression was exactly that.
+                file={opened}
                 dark={dark}
                 t={t}
                 readText={readText}

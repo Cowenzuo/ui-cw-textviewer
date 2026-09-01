@@ -168,7 +168,10 @@ export function TextViewer(props: {
     })
   }
 
-  // Reset and load the first chunk on file change.
+  // Reset and load the first chunk when the FILE CHANGES. Keyed on the
+  // PATH (not the file object's identity): parent re-renders — width drags,
+  // sidebar measurements, theme flips — must never fabricate a "new file"
+  // and reset the surface (the drag-flicker regression was exactly that).
   useEffect(() => {
     setContent('')
     setMeta(null)
@@ -192,9 +195,9 @@ export function TextViewer(props: {
       append(result.value)
     })
     return () => { cancelled = true }
-    // append reads only refs; readText/root/file are the real inputs.
+    // append reads only refs; the reload condition is the path itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [root, file, readText])
+  }, [root, file === null ? null : file.path, readText])
 
   const onScroll = (): void => {
     const el = scrollRef.current
