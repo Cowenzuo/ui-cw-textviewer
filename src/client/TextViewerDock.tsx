@@ -35,7 +35,10 @@ export interface TextviewerInjected {
 const DEFAULT_WIDTH = 380
 /** Expanded width drag bounds. */
 const MIN_WIDTH = 200
-const MAX_WIDTH = 720
+/** The fileexplorer dock's minimum width (its MIN_WIDTH constant) — the
+ * viewer's upper limit is computed from it, so the viewer may grow until the
+ * sidebar and the fileexplorer dock both sit at their floors. */
+const FILEEXPLORER_MIN_WIDTH = 180
 /** CSS variables: this dock's width, the sibling fileexplorer dock's width,
  * and the terminal dock's height (published on the document root — see
  * ui-cw-terminal's publishHeight). */
@@ -118,6 +121,46 @@ export function TextviewerDock(
   }
   useEffect(() => subscribeOpen((file) => { openHandlerRef.current(file) }), [subscribeOpen])
 
+  // Dynamic width ceiling: the viewer may grow until the OTHER occupants of
+  // the right edge are at their minimums — the official sidebar column (like
+  // the terminal, measured from the overlay frame) plus the fileexplorer
+  // dock at its own 180px floor. With no fileexplorer present, only the
+  // sidebar counts.
+  const [viewportW, setViewportW] = useState(() => window.innerWidth)
+  const [sidebarW, setSidebarW] = useState(0)
+  const [hasFileexplorer, setHasFileexplorer] = useState(false)
+  useEffect(() => {
+    const onResize = (): void => { setViewportW(window.innerWidth) }
+    window.addEventListener('resize', onResize)
+    const measure = (): void => {
+      const overlay = document.querySelector('[data-shell-overlay]')
+      const sidebar = overlay?.parentElement?.children[0]
+      setSidebarW(sidebar instanceof HTMLElement ? sidebar.offsetWidth : 0)
+      setHasFileexplorer(document.querySelector('[data-dsh-fileexplorer]') !== null)
+    }
+    measure()
+    // The sidebar width can change at runtime (collapse/expand) — track it.
+    const sidebar = document.querySelector('[data-shell-overlay]')?.parentElement?.children[0]
+    let observer: ResizeObserver | undefined
+    if (sidebar instanceof HTMLElement) {
+      observer = new ResizeObserver(() => { measure() })
+      observer.observe(sidebar)
+    }
+    // Plugin DOM may mount after this effect runs — re-measure once later.
+    const timer = window.setTimeout(measure, 300)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      observer?.disconnect()
+      window.clearTimeout(timer)
+    }
+  }, [])
+  const maxWidth = Math.max(MIN_WIDTH, viewportW - sidebarW - (hasFileexplorer ? FILEEXPLORER_MIN_WIDTH : 0))
+  // A viewport/sidebar shrink must not leave the panel wider than the new
+  // ceiling (clamped silently, without a drag).
+  useEffect(() => {
+    setWidth(current => Math.min(current, maxWidth))
+  }, [maxWidth])
+
   // Mount the push stylesheet once; the width variables below drive it.
   useEffect(() => {
     const style = document.createElement('style')
@@ -137,7 +180,7 @@ export function TextviewerDock(
 
   /** Write the current drag width straight to the DOM (zero React renders). */
   const applyDragWidth = (next: number): void => {
-    const clamped = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, next))
+    const clamped = Math.min(maxWidth, Math.max(MIN_WIDTH, next))
     document.documentElement.style.setProperty(WIDTH_VAR, `${clamped}px`)
     if (panelRef.current !== null) panelRef.current.style.width = `${clamped}px`
     if (dragWidth.current !== null) dragWidth.current.lastWidth = clamped
