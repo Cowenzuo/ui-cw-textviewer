@@ -2,6 +2,8 @@
  * /textviewer host tests: the handler factory exercised directly (no ctx),
  * with real files in a temporary directory. Encoding fixtures cover the
  * BOM/fallback ladder; chunking covers byte paging and UTF-16 alignment.
+ * There is no listing coverage by design — the file tree belongs to the
+ * ui-cw-fileexplorer plugin, not this channel.
  */
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
@@ -9,16 +11,9 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
   clampReadLimit, createTextviewerHandler, decodeChunk, detectEncoding, isWithin,
-  parseAttribOutput, READ_DEFAULT_LIMIT, READ_MAX_LIMIT,
+  READ_DEFAULT_LIMIT, READ_MAX_LIMIT,
 } from '../src/handler.ts'
-import type { TextviewerListing, TextviewerSnapshot } from '../src/contract.ts'
-
-/** Assert the result is the success branch and return the listing. */
-function expectListing(result: unknown): TextviewerListing {
-  const r = result as { ok: true; value: TextviewerListing } | { ok: false; error: { code: string } }
-  expect(r.ok).toBe(true)
-  return (r as { ok: true; value: TextviewerListing }).value
-}
+import type { TextviewerSnapshot } from '../src/contract.ts'
 
 /** Assert the result is the success branch and return the snapshot. */
 function expectSnapshot(result: unknown): TextviewerSnapshot {
@@ -69,20 +64,6 @@ describe('encoding detection', () => {
   })
 })
 
-describe('parseAttribOutput', () => {
-  it('collects hidden attribute rows only', () => {
-    const output = [
-      'A  H          C:\\work\\.git',
-      'A             C:\\work\\readme.md',
-      'A  H          "C:\\work\\my dir\\secret.txt"',
-    ].join('\r\n')
-    const hidden = parseAttribOutput(output)
-    expect(hidden.has('c:\\work\\.git')).toBe(true)
-    expect(hidden.has('c:\\work\\readme.md')).toBe(false)
-    expect(hidden.has('c:\\work\\my dir\\secret.txt')).toBe(true)
-  })
-})
-
 describe('isWithin', () => {
   it('compares exactly on the platform separator (case-insensitive on win32)', () => {
     const root = process.platform === 'win32' ? 'C:\\work' : '/work'
@@ -125,57 +106,6 @@ describe('textviewer handler', () => {
     const result = await handler('renderer', {}, new AbortController().signal)
     expect(result.ok).toBe(false)
     expect(result.ok ? '' : result.error.message).toContain('missing')
-  })
-
-  it('lists a level: directories first, then name-sorted files', async () => {
-    await mkdir(join(root, 'zeta-dir'))
-    await mkdir(join(root, 'alpha-dir'))
-    await writeFile(join(root, 'b.txt'), 'b')
-    await writeFile(join(root, 'a.txt'), 'a')
-    const handler = createTextviewerHandler()
-    const listing = expectListing(await handler('list', { root, path: root, }, new AbortController().signal))
-    expect(listing.path).toBe(root)
-    expect(listing.entries.map(entry => entry.name)).toEqual(['alpha-dir', 'zeta-dir', 'a.txt', 'b.txt'])
-    expect(listing.entries.every(entry => entry.hidden === false)).toBe(true)
-    const file = listing.entries.find(entry => entry.name === 'a.txt')
-    expect(file?.kind).toBe('file')
-    expect(file?.size).toBe(1)
-    expect(file?.mtimeMs).toBeTypeOf('number')
-  })
-
-  it('marks hidden entries through the injected reader', async () => {
-    await writeFile(join(root, 'secret.txt'), 's')
-    const hiddenPath = join(root, 'secret.txt')
-    const handler = createTextviewerHandler({
-      readHidden: async () => new Set([hiddenPath.toLowerCase()]),
-    })
-    const listing = expectListing(await handler('list', { root, path: root }, new AbortController().signal))
-    expect(listing.entries.find(entry => entry.name === 'secret.txt')?.hidden).toBe(true)
-  })
-
-  it('cuts levels at the complete-result bound', async () => {
-    await writeFile(join(root, 'a.txt'), 'a')
-    await writeFile(join(root, 'b.txt'), 'b')
-    await writeFile(join(root, 'c.txt'), 'c')
-    const handler = createTextviewerHandler({ maxEntries: 2 })
-    const listing = expectListing(await handler('list', { root, path: root }, new AbortController().signal))
-    expect(listing.entries).toHaveLength(2)
-    expect(listing.truncated).toBe(true)
-  })
-
-  it('enforces the locked workspace root on list', async () => {
-    const outside = resolve(root, '..')
-    const handler = createTextviewerHandler()
-    const result = await handler('list', { root, path: outside }, new AbortController().signal)
-    expect(result.ok).toBe(false)
-    expect(result.ok ? '' : result.error.message).toContain('escapes')
-  })
-
-  it('rejects unqualified paths on list', async () => {
-    const handler = createTextviewerHandler()
-    const result = await handler('list', { root, path: 'relative/path' }, new AbortController().signal)
-    expect(result.ok).toBe(false)
-    expect(result.ok ? '' : result.error.code).toBe('directory-unreadable')
   })
 
   it('reads a UTF-8 file whole', async () => {

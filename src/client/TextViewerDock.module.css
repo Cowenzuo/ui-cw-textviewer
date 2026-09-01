@@ -44,38 +44,6 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* Horizontal divider between the tree and the preview region: the same
-   hairline treatment rotated; pointer drag adjusts the height share. */
-.dividerH {
-  flex: none;
-  height: 7px;
-  margin: -3px 0;
-  position: relative;
-  z-index: 1;
-  cursor: row-resize;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.dividerH::after {
-  content: '';
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  top: 3px;
-  height: 1px;
-  background: var(--dsw-alias-border-l2);
-  opacity: 0;
-  transition: opacity 120ms var(--ds-ease-in-out);
-}
-
-.dividerH:hover::after,
-.dividerH:active::after {
-  opacity: 1;
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
 /* Collapsed rail: the panel's full-height background IS the collapsed bar —
    the arrow sits directly on it, vertically centered, with no extra button
    block (the visual reference must be the bar itself, not a nested chip). */
@@ -151,8 +119,7 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* One region (tree / preview): the shell sizes it (flex share or
-   flex-remaining); the occupant owns its internal layout. */
+/* Preview region: flex-remaining column; TextViewer owns its header+scroll. */
 .section {
   display: flex;
   flex-direction: column;
@@ -160,104 +127,9 @@
   overflow: hidden;
 }
 
-/* Region caption: slim label row above the occupant. */
-.sectionTitle {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 26px;
-  padding: 0 6px 0 10px;
-  box-sizing: border-box;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--dsw-alias-label-secondary);
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
-}
-
-.sectionBody {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 4px 6px 8px;
-  box-sizing: border-box;
-}
-
-/* Lazy tree surface (the navigation region's single tree). */
-.treeList {
-  flex: none;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.treeRow {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  min-width: 0;
-  cursor: pointer;
-  outline: none;
-}
-
-.treeRow:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-/* Keyboard focus only: a click must not leave a focus ring on rows. */
-.treeRow:focus-visible {
-  outline: 2px solid var(--dsw-alias-state-business-primary);
-  outline-offset: -2px;
-}
-
-/* Twist/expand affordance column; file rows show a dot in its place. */
-.treeTwisty {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.treeDot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--dsw-alias-label-tertiary);
-}
-
-/* Selected file (the preview region's target). */
-.rowSelected {
-  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent);
-}
-
-.rowSelected:hover {
-  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);
-}
-
-.name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.meta {
-  flex: none;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  line-height: 16px;
-}
-
 .message {
   flex: none; /* states stay readable when the region squeezes */
-  padding: 4px 6px;
+  padding: 8px 10px;
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   line-height: 18px;

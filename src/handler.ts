@@ -1,39 +1,35 @@
 /**
- * /textviewer RPC handler: read-only directory listing + text chunk reading.
+ * /textviewer RPC handler: text chunk reading + lazy renderer bundle serving.
  *
  * Pure module with no ctx dependency: `apply` wires the factory result into
  * the connection channel, tests call the factory directly. Read-only by
- * design (v1): `list` navigates the workspace, `read-text` serves decoded
- * text chunks (BOM-detected UTF-8/UTF-16, GBK fallback for legacy Chinese
- * files, NUL-based binary sniff, clamped byte paging).
+ * design: `read-text` serves decoded text chunks (BOM-detected UTF-8/UTF-16,
+ * GBK fallback for legacy Chinese files, NUL-based binary sniff, clamped
+ * byte paging), `renderer` serves the lazy renderer bundle source.
+ *
+ * NOTE: there is deliberately NO directory-listing endpoint here — the file
+ * tree belongs to the ui-cw-fileexplorer plugin, which broadcasts open-file
+ * events the viewer subscribes to (see src/client).
  *
  * Error codes come from the core RpcErrorDetailsMap (a closed union): the
  * directory picker's `directory-unreadable` covers every unusable target,
  * `cancelled` reports caller aborts, `bad-request` rejects unknown
  * endpoints, `internal` folds unexpected failures.
  */
-import { spawn } from 'node:child_process'
-import { open, readdir, readFile, stat } from 'node:fs/promises'
-import { isAbsolute, join, parse } from 'node:path'
+import { open, readFile, stat } from 'node:fs/promises'
+import { isAbsolute, parse } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as iconv from 'iconv-lite'
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import type {
-  TextviewerEncoding, TextviewerEntry, TextviewerListing, TextviewerListRequest,
-  TextviewerReadRequest, TextviewerRendererResult, TextviewerSnapshot,
+  TextviewerEncoding, TextviewerReadRequest, TextviewerRendererResult, TextviewerSnapshot,
 } from './contract.ts'
 
 export type {
-  TextviewerEncoding, TextviewerEntry, TextviewerListing, TextviewerListRequest,
-  TextviewerReadRequest, TextviewerRendererResult, TextviewerSnapshot,
+  TextviewerEncoding, TextviewerReadRequest, TextviewerRendererResult, TextviewerSnapshot,
 } from './contract.ts'
 
-/** One attrib(1) output line: attribute letters then the quoted-or-plain path. */
-const ATTRIB_LINE = /^([ASHR ]+)\s+(.+)$/
-
-/** Complete-result bound for one listed level (name-sorted head kept). */
-const DEFAULT_MAX_ENTRIES = 200
 /** Default read chunk size in bytes. */
 export const READ_DEFAULT_LIMIT = 256 * 1024
 /** Hard ceiling for a submitted read `limit` (protects the host from huge pages). */
@@ -42,15 +38,6 @@ export const READ_MAX_LIMIT = 1024 * 1024
 const BINARY_PROBE_BYTES = 8192
 
 export interface TextviewerHandlerOptions {
-  /** Complete-result bound; a cut level keeps the name-sorted head (mirrors the directory picker's maxEntries). */
-  maxEntries?: number
-  /**
-   * Windows hidden-attribute reader for one listed directory; defaults to an
-   * `attrib` spawn (Node dirents expose no FILE_ATTRIBUTE_HIDDEN). Tests
-   * inject a fake; a reader that fails yields no hidden entries (the caller
-   * falls back to the POSIX dot-prefix convention).
-   */
-  readHidden?: (root: string) => Promise<ReadonlySet<string>>
   /**
    * Lazy renderer bundle reader; defaults to the built lib/renderer.js next
    * to this module. Tests inject a fake so the endpoint is exercisable
@@ -95,46 +82,6 @@ export function isWithin(root: string, candidate: string): boolean {
   if (b === a) return true
   const separator = process.platform === 'win32' ? '\\' : '/'
   return b.startsWith(`${a}${separator}`)
-}
-
-/** POSIX dot-prefix convention; on Windows only the real attribute decides. */
-function isDotHidden(name: string): boolean {
-  return process.platform !== 'win32' && name.startsWith('.')
-}
-
-/**
- * Parse `attrib <dir>\*` output into the set of hidden absolute paths
- * (lowercased). Lines look like `A  H          D:\dir\.git` — attribute
- * letters, then the path (quoted when it contains spaces).
- */
-export function parseAttribOutput(output: string): Set<string> {
-  const hidden = new Set<string>()
-  for (const line of output.split(/\r?\n/)) {
-    const match = ATTRIB_LINE.exec(line.trimEnd())
-    if (match === null) continue
-    if (!match[1]!.includes('H')) continue
-    const path = match[2]!.trim().replace(/^"(.*)"$/, '$1')
-    if (path !== '') hidden.add(path.toLowerCase())
-  }
-  return hidden
-}
-
-/**
- * Batch-read the Windows hidden attribute for every entry of `root` through
- * one `attrib /d <root>\*` call. Failures (missing binary, sandbox fences)
- * resolve to an empty set so listing never fails because of the probe.
- */
-export async function readWindowsHidden(root: string): Promise<ReadonlySet<string>> {
-  return new Promise((resolve) => {
-    const child = spawn('attrib', ['/d', join(root, '*')], { windowsHide: true })
-    let output = ''
-    child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
-    child.on('error', () => { resolve(new Set()) })
-    child.on('close', (code) => {
-      if (code !== 0) { resolve(new Set()); return }
-      resolve(parseAttribOutput(output))
-    })
-  })
 }
 
 /**
@@ -229,11 +176,9 @@ export async function readTextChunk(path: string, offset: number, limit: number,
  * @returns handler satisfying the ConnectionRpcHandler contract.
  */
 export function createTextviewerHandler(options: TextviewerHandlerOptions = {}): ConnectionRpcHandler {
-  const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES
-  const readHidden = options.readHidden ?? (process.platform === 'win32' ? readWindowsHidden : undefined)
   const readRenderer = options.readRenderer ?? defaultReadRenderer
   return async (endpoint, payload, signal): Promise<RpcResult<unknown>> => {
-    if (endpoint !== 'list' && endpoint !== 'read-text' && endpoint !== 'renderer') {
+    if (endpoint !== 'read-text' && endpoint !== 'renderer') {
       return {
         ok: false,
         error: {
@@ -258,105 +203,6 @@ export function createTextviewerHandler(options: TextviewerHandlerOptions = {}):
           error: { code: 'internal', message: `renderer bundle unavailable: ${error instanceof Error ? error.message : String(error)}`, details: {} },
         }
       }
-    }
-    if (endpoint === 'list') {
-      const requested = (payload as TextviewerListRequest | null)?.path
-      const lockedRoot = (payload as TextviewerListRequest | null)?.root
-      if (requested !== undefined && !isQualifiedAbsolutePath(requested)) {
-        return {
-          ok: false,
-          error: { code: 'directory-unreadable', message: 'path is not fully qualified', details: { path: String(requested) } },
-        }
-      }
-      if (lockedRoot !== undefined && !isQualifiedAbsolutePath(lockedRoot)) {
-        return {
-          ok: false,
-          error: { code: 'directory-unreadable', message: 'root is not fully qualified', details: { path: String(lockedRoot) } },
-        }
-      }
-      const root = requested ?? lockedRoot ?? process.cwd()
-      // Workspace lock: with a locked root the target must stay inside it —
-      // enforced host-side so a client bug cannot escape the workspace.
-      if (lockedRoot !== undefined && !isWithin(lockedRoot, root)) {
-        return {
-          ok: false,
-          error: { code: 'directory-unreadable', message: 'path escapes the locked workspace root', details: { path: root } },
-        }
-      }
-      let dirents
-      try {
-        dirents = await readdir(root, { withFileTypes: true })
-      } catch (error) {
-        if (signal.aborted) return { ok: false, error: { code: 'cancelled', message: 'textviewer listing was aborted', details: {} } }
-        return {
-          ok: false,
-          error: { code: 'directory-unreadable', message: error instanceof Error ? error.message : String(error), details: { path: root } },
-        }
-      }
-      if (signal.aborted) return { ok: false, error: { code: 'cancelled', message: 'textviewer listing was aborted', details: {} } }
-      // On Windows the real FILE_ATTRIBUTE_HIDDEN decides (a dot prefix alone
-      // does not); the reader failure fallback keeps dot-prefix hiding intact.
-      let hiddenPaths: ReadonlySet<string> = new Set()
-      if (readHidden !== undefined) {
-        try {
-          hiddenPaths = await readHidden(root)
-        } catch {
-          hiddenPaths = new Set()
-        }
-      }
-      // Directories first, name-sorted within each kind.
-      const rows = dirents
-        .map(dirent => ({ dirent, path: join(root, dirent.name) }))
-        .sort((left, right) => {
-          const leftDir = left.dirent.isDirectory()
-          const rightDir = right.dirent.isDirectory()
-          if (leftDir !== rightDir) return leftDir ? -1 : 1
-          return left.dirent.name < right.dirent.name ? -1 : left.dirent.name > right.dirent.name ? 1 : 0
-        })
-      const truncated = rows.length > maxEntries
-      const kept = truncated ? rows.slice(0, maxEntries) : rows
-      const entries: TextviewerEntry[] = []
-      for (const row of kept) {
-        if (signal.aborted) return { ok: false, error: { code: 'cancelled', message: 'textviewer listing was aborted', details: {} } }
-        const { dirent } = row
-        let kind: 'file' | 'dir' | undefined
-        let size: number | undefined
-        let mtimeMs: number | undefined
-        if (dirent.isDirectory()) {
-          kind = 'dir'
-        } else if (dirent.isFile()) {
-          kind = 'file'
-        } else {
-          // Symlink or special: one probe decides the row (broken/cyclic links are skipped).
-          try {
-            const st = await stat(row.path)
-            kind = st.isDirectory() ? 'dir' : 'file'
-            size = st.size
-            mtimeMs = st.mtimeMs
-          } catch {
-            continue
-          }
-        }
-        if (kind === 'file' && size === undefined) {
-          try {
-            const st = await stat(row.path)
-            size = st.size
-            mtimeMs = st.mtimeMs
-          } catch {
-            // Vanished between readdir and stat: skip the row entirely.
-            continue
-          }
-        }
-        entries.push({
-          name: dirent.name,
-          path: row.path,
-          kind,
-          size,
-          mtimeMs,
-          hidden: isDotHidden(dirent.name) || hiddenPaths.has(row.path.toLowerCase()),
-        })
-      }
-      return { ok: true, value: { path: root, entries, truncated } satisfies TextviewerListing }
     }
     // read-text
     const readPayload = payload as TextviewerReadRequest | null

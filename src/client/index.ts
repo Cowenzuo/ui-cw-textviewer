@@ -3,14 +3,18 @@
  * official `shell.overlay` slot (root-level list slot, zero official source
  * changes).
  *
+ * The dock is a PURE VIEWER: it implements no file listing of its own. The
+ * ui-cw-fileexplorer plugin broadcasts open-file events (cordis event
+ * `ui-cw/fileexplorer/file-open`, payload { name, path, root }) when a file
+ * row is clicked; this plugin subscribes on the ROOT context (plugin fibers
+ * are sibling scopes, and cordis context filtering only matches ancestors of
+ * the emitter, so a plain `ctx.on` on this scope would never fire) and feeds
+ * the dock through a subscribe handle on the inject face.
+ *
  * The dock sits directly LEFT of the ui-cw-fileexplorer dock (it reads that
  * plugin's width variable) and pushes the official UI left through a
  * `#root { margin-right }` stylesheet — the same validated technique, with
  * the combined width so both docks yield the conversation area together.
- * The occupant follows the currently selected session through the global
- * session hooks: clicking any conversation in the sidebar switches the dock
- * to that session's workspace, and with no session selected the dock shows
- * an empty-state hint.
  */
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only: the 'shell.overlay' SlotMap row (declared by ui-layout) and the
@@ -20,8 +24,6 @@ import type { Context } from '@deepseek-ai/cordis'
 // locale package's declaration file (and its ctx.locale merge) to load.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer'
-// The ui-session package declares the useSessions standard-prop merge.
-import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { LocaleDict, LocaleId } from '@deepseek-ai/dsh-client-locale/client'
 import { createTextviewerClient } from './service.ts'
 import { TextviewerDock, type TextviewerInjected } from './TextViewerDock.tsx'
@@ -31,14 +33,35 @@ import { en, NS, zh } from './locales.ts'
 export const inject = ['slots', 'locale', 'connection']
 
 /**
+ * Cross-plugin open-file protocol: the event name ui-cw-fileexplorer
+ * broadcasts when a file row is clicked. Consumers subscribe on the ROOT
+ * context — see the module doc for the cordis context-filter reasoning.
+ */
+export const FILE_OPEN_EVENT = 'ui-cw/fileexplorer/file-open'
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /** Broadcast by ui-cw-fileexplorer when a file row is clicked. */
+    [FILE_OPEN_EVENT]: (file: import('../contract.ts').TextviewerOpenEvent) => void
+  }
+}
+
+/**
  * Browser plugin body: register the text viewer dock into the overlay
  * layer. The registration rides the slot service's effect wrapper, so plugin
- * unload removes the dock.
+ * unload removes the dock; the event subscription lives on the root context
+ * and is fiber-owned (auto-disposed on unload).
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en } satisfies Record<LocaleId, LocaleDict>), 'textviewer: dictionaries')
   const client = createTextviewerClient(ctx)
+  // Listeners waiting for an open-file event; the dock subscribes through
+  // the inject face (components never touch ctx).
+  const openListeners = new Set<(file: import('../contract.ts').TextviewerOpenEvent) => void>()
+  ctx.root.on(FILE_OPEN_EVENT, (file: import('../contract.ts').TextviewerOpenEvent) => {
+    for (const listener of openListeners) listener(file)
+  })
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay',
     id: 'textviewer',
@@ -47,12 +70,15 @@ export function apply(ctx: Context): void {
     // same order; the two docks never overlap — they stack side by side).
     order: 1000,
     inject: (): TextviewerInjected => ({
-      list: client.list,
       readText: client.readText,
       rendererBundle: async () => {
         const result = await client.renderer(new AbortController().signal)
         if (!result.ok) throw new Error(result.error.message)
         return result.value.code
+      },
+      subscribeOpen: (listener) => {
+        openListeners.add(listener)
+        return () => { openListeners.delete(listener) }
       },
     }),
   }, TextviewerDock))

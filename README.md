@@ -1,8 +1,9 @@
 # ui-cw-textviewer（右侧文本查看器 dock 插件）
 
-右侧停靠的**只读文本文件浏览器**，为 dsh web 会话区补充：按扩展名分派的渲染器
+右侧停靠的**只读文本文件查看器**，为 dsh web 会话区补充：按扩展名分派的渲染器
 （代码高亮 / Markdown 渲染 / 纯文本）、编码探测（BOM / UTF-8 / GBK）、大文件
-分块流式查看。全部跟随当前会话的工作区，**零官方源码改动**。
+分块流式查看。**纯查看器：不自带文件列表**——文件树由 ui-cw-fileexplorer 提供，
+点击文件行经 cordis 事件广播，本插件订阅接收即开即看。全部**零官方源码改动**。
 
 ---
 
@@ -10,11 +11,12 @@
 
 ### 功能总览
 
-1. **布局**：独立右 dock，与 ui-cw-fileexplorer 并排（坐在其左侧）；两插件宽度
-   变量联动，共同推挤官方 UI；自身可拖宽（200–720px）、整体收起为全高 rail；
-   树/预览两区高度可拖（默认树 38%）
-2. **文件树（导航区）**：单棵懒加载树（根层自动加载、展开按需取层、2s 轮询
-   原地刷新且保留展开状态）；隐藏文件过滤（`attrib`）；点击文件 → 预览区
+1. **打开方式（事件驱动）**：ui-cw-fileexplorer 点击文件行 →
+   `ctx.emit('ui-cw/fileexplorer/file-open', { name, path, root })` →
+   本插件在 **root 上下文**订阅接收（插件 fiber 是兄弟作用域，cordis 上下文
+   过滤只匹配发出者的祖先，普通 `ctx.on` 收不到）；同一文件重复点击不重载
+2. **布局**：独立右 dock，与 ui-cw-fileexplorer 并排（坐在其左侧）；两插件宽度
+   变量联动，共同推挤官方 UI；自身可拖宽（200–720px）、整体收起为全高 rail
 3. **渲染器注册表（预览区，v1）**：
    - `cpp/hpp/h/cc/cxx/…`、`ts/tsx/js/py/java/go/rs/…` → **Shiki**（TextMate
      语法，VS Code 同款着色）+ CSS 计数器行号
@@ -27,23 +29,28 @@
    续载（钉在底部时连续流式），预览上限 2MB；头部显示编码 · 大小 · 部分标记
 6. **编码与安全**：BOM 探测（UTF-8/UTF-16LE/UTF-16BE）→ 严格 UTF-8 → 失败回退
    GBK（国内遗留文件）；首块 NUL 嗅探识别二进制（提示不预览）；工作区锁定
-   （host 侧强制，路径不可越出会话 cwd）
+   （host 侧强制，路径不可越出事件携带的会话 cwd）
 
 ### 架构与数据流
 
 ```
 浏览器 (dsh web)                              Host (Node)
 ┌──────────────────────────┐                 ┌──────────────────────────┐
-│ shell.overlay 槽（官方）   │   POST /textviewer/*  │ ctx.connection.rpc.handle  │
-│ TextviewerDock           │ ──────────────────▶ │  list          只读目录       │
-│  ├ 文件树（导航区）         │ ◀────────────────── │  read-text     分块解码      │
-│  └ 预览区（渲染器注册表）    │    RpcResult        │  renderer      懒加载渲染包   │
-│     ├ Shiki 高亮 + 行号     │                   └──────────────────────────┘
-│     ├ react-markdown GFM   │
-│     └ 纯文本 pre            │
+│ shell.overlay 槽（官方）   │                 │ ctx.connection.rpc.handle  │
+│ fileexplorer dock（右）    │                 │  read-text     分块解码      │
+│   └ 点击文件行 ──emit──┐   │                 │  renderer      懒加载渲染包   │
+│                       ▼   │   POST /textviewer/*  └──────────────────────────┘
+│ TextviewerDock（右侧） │   │ ─────────────────▶
+│   └ 预览区（渲染器注册表）  │ ◀──────────────────
+│      ├ Shiki 高亮 + 行号   │    RpcResult
+│      ├ react-markdown GFM │
+│      └ 纯文本 pre          │
 └──────────────────────────┘
 ```
 
+- **事件桥**：fileexplorer 在自身作用域 `ctx.emit`（向上冒泡到 root）；
+  textviewer 在 `ctx.root.on` 订阅——兄弟作用域互不可见是 cordis 上下文过滤
+  的既定语义，接收方必须挂 root（或 `{ global: true }`）
 - **零官方改动**：挂载用官方 `shell.overlay` 槽；让位用 `#root { margin-right:
   calc(...) }` CSS 推挤（读取 fileexplorer 的宽度变量，两边 dock 合计推挤）；
   数据走插件自有 `/textviewer` RPC 通道
@@ -52,7 +59,7 @@
   `lib/renderer.js`，host 经 `renderer` 端点提供（读取插件包内同目录文件），
   客户端首次打开文件才拉取并以 `new Function('module','exports','require', …)`
   求值（require 仅放行 react 两个模块，其余走主包 require 表）；启动主包仅
-  ≈45KB。渲染包加载失败自动降级为纯文本，不白屏
+  ≈32KB。渲染包加载失败自动降级为纯文本，不白屏
 - **数据跟随**：`useSessions` 全局 hook → 当前会话 cwd = 锁定工作区根
 
 ### 目录结构
@@ -60,13 +67,12 @@
 ```
 src/
 ├── index.ts          # node 半：注册 /textviewer 通道（apply）
-├── contract.ts       # 双面共享的 RPC 契约（纯类型）
-├── handler.ts        # 通道实现：list / read-text / renderer + 编码解析纯函数
+├── contract.ts       # 双面共享的 RPC 契约 + 跨插件打开事件类型（纯类型）
+├── handler.ts        # 通道实现：read-text / renderer + 编码解析纯函数
 └── client/           # 浏览器半
-    ├── index.ts      # apply：slots.inject('shell.overlay') 注册
-    ├── service.ts    # RPC 客户端封装（list/readText/renderer）
-    ├── TextViewerDock.tsx   # dock 骨架（推挤/拖拽/收起 + 树预览两区）
-    ├── FileTree.tsx         # 懒加载文件树（展开取层 / 轮询原地合并）
+    ├── index.ts      # apply：slots.inject('shell.overlay') + root 订阅打开事件
+    ├── service.ts    # RPC 客户端封装（readText/renderer）
+    ├── TextViewerDock.tsx   # dock 骨架（推挤/拖拽/收起 + 事件订阅）
     ├── TextViewer.tsx       # 预览区：渲染器分派 + 分块流式 + 续载
     ├── renderer-loader.ts   # 懒渲染包拉取/求值/缓存（主包）
     ├── renderer.tsx         # 懒渲染包入口：Shiki 高亮 + Markdown 视图
@@ -92,7 +98,7 @@ pnpm build     # 生成产物 lib/index.js + lib/client.js + lib/renderer.js
 
 ```sh
 pnpm typecheck                    # tsc --noEmit
-pnpm test                         # vitest（24 个：解析/端点/真文件集成）
+pnpm test                         # vitest（18 个：解析/端点/真文件集成）
 pnpm build:watch                  # client 面 watch → HMR 热更
 .\publish.ps1                     # 一键发布：build+test → npm pack → 上架
                                   #   %USERPROFILE%\.dsh\profiles\web\vendor
@@ -106,6 +112,8 @@ GBK 解析无 BOM 文件会乱码）；发布后需重启 dsh 生效。
 
 ### 已知限制
 
+- **依赖 fileexplorer**：打开事件由 ui-cw-fileexplorer 发出，单独安装本插件
+  没有打开入口（v1 定位 = 配套查看器）
 - 只读边界：不提供编辑/保存（详情交给真实编辑器）
 - 分块续载：块边界处多字节字符（GBK/UTF-16）可能产生替换符；多行结构（如
   C 块注释）跨块时该处着色可能不完整（按块独立高亮）

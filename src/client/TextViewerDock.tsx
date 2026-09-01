@@ -1,9 +1,9 @@
 /**
  * Text viewer dock: a right-side panel rendered into the official
- * `shell.overlay` slot. Two layers inside: the lazy file TREE (navigation)
- * and the text PREVIEW region (the per-extension renderer registry), split
- * by a draggable height divider. The dock sits directly LEFT of the
- * ui-cw-fileexplorer dock and collapses independently to a slim rail.
+ * `shell.overlay` slot. A PURE VIEWER — the dock implements no file listing:
+ * the ui-cw-fileexplorer plugin broadcasts open-file events and this dock
+ * subscribes (see index.ts for the cordis context-filter reasoning), then
+ * hands the file to the preview region (the per-extension renderer registry).
  *
  * Geometry is fully owned by this component — no official source changes:
  * a `#root { margin-right }` stylesheet pushes the official UI left (the
@@ -11,9 +11,7 @@
  * both docks (this dock reads the fileexplorer's width variable, so the two
  * yield the conversation area together). The dock width drag lives on the
  * left edge; collapsing the whole dock leaves a full-height bar with a
- * vertically centered expand arrow. The region follows the currently
- * selected session's workspace through the global session hooks. All data
- * arrives through props; the poll effects are pure behavioral hooks.
+ * vertically centered expand arrow. All data arrives through props.
  */
 import { useEffect, useRef, useState } from 'react'
 import {
@@ -22,16 +20,18 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS } from './locales.ts'
-import { FileTree, type TextviewerTreeInjected } from './FileTree.tsx'
+import type { TextviewerOpenEvent } from '../contract.ts'
 import { TextViewer } from './TextViewer.tsx'
 import css from './TextViewerDock.module.css'
 
 /** Business callbacks injected by the register site (apply world). */
-export interface TextviewerInjected extends TextviewerTreeInjected {
+export interface TextviewerInjected {
   /** Read one decoded chunk of a file inside the locked root. */
   readText(root: string, path: string, offset: number, limit: number | undefined, signal: AbortSignal): Promise<import('@deepseek-ai/dsh-host-apiproxy/api').RpcResult<import('../contract.ts').TextviewerSnapshot>>
   /** Fetch the lazy renderer bundle source (throws on transport failure). */
   rendererBundle(): Promise<string>
+  /** Subscribe to fileexplorer's open-file events; returns an unsubscribe. */
+  subscribeOpen(listener: (file: TextviewerOpenEvent) => void): () => void
 }
 
 /** Default expanded width in px. */
@@ -41,11 +41,6 @@ const MIN_WIDTH = 200
 const MAX_WIDTH = 720
 /** Collapsed rail width: a slim vertical tab keeps the expand affordance visible. */
 const RAIL_WIDTH = 28
-/** Default share of the dock height the tree takes. */
-const DEFAULT_TREE_RATIO = 0.38
-/** Tree-region height drag bounds (the preview keeps the remainder). */
-const MIN_TREE_RATIO = 0.2
-const MAX_TREE_RATIO = 0.7
 /** CSS variables: this dock's width, and the sibling fileexplorer dock's width. */
 const WIDTH_VAR = '--dsh-textviewer-width'
 const FILEEXPLORER_WIDTH_VAR = '--dsh-fileexplorer-width'
@@ -101,33 +96,38 @@ const PUSH_CSS = [
 ].join('\n')
 
 /**
- * The dock: collapse rail ⇄ expanded two-region layout.
+ * The dock: collapse rail ⇄ expanded viewer layout.
  * @param props - slot runtime + register inject face + locale.
  */
 export function TextviewerDock(
   props: PropsRuntime<'shell.overlay'> & InjectFace<TextviewerInjected> & PropsLocale<typeof NS>,
 ): React.JSX.Element {
-  const { useSessions, list, readText, rendererBundle, t } = props
-  const sessionId = useSessions(state => state.current)
-  // The session workspace is the viewer's locked root (VS Code style): the
-  // view may only descend inside it, never escape upward.
-  const cwd = useSessions(state => (sessionId === undefined ? undefined : state.byId[sessionId]?.cwd))
-  const [selectedFile, setSelectedFile] = useState<{ name: string; path: string } | null>(null)
-  const previousRoot = useRef(cwd)
-  const root = cwd
+  const { readText, rendererBundle, subscribeOpen, t } = props
+  // The file currently open in the viewer, with the workspace root that came
+  // with the event (the read-text scope — the viewer never lists anything).
+  const [opened, setOpened] = useState<{ root: string; name: string; path: string } | null>(null)
   const dark = useDark()
 
-  // Dock geometry: whole-dock expand + tree/preview height share, transient
-  // (refresh restores the defaults), like the official widths.
+  // Dock geometry: whole-dock expand, transient (refresh restores the
+  // defaults), like the official widths.
   const [expanded, setExpanded] = useState(true)
   const [width, setWidth] = useState(DEFAULT_WIDTH)
-  const [treeRatio, setTreeRatio] = useState(DEFAULT_TREE_RATIO)
   const [dragging, setDragging] = useState(false)
   const dragWidth = useRef<{ startX: number; startWidth: number; lastWidth: number } | null>(null)
-  const dragTree = useRef<{ startY: number; startRatio: number; lastRatio: number } | null>(null)
   const titleClick = useTitleClick(() => setExpanded(false))
   const panelRef = useRef<HTMLDivElement>(null)
-  const treeRef = useRef<HTMLDivElement>(null)
+  // Latest open handler behind a stable subscription (inject-face identities
+  // must not force re-subscribes on every render).
+  const openHandlerRef = useRef<(file: TextviewerOpenEvent) => void>(() => {})
+  // The last opened target: re-clicking the same file must not reload.
+  const lastOpenRef = useRef<{ root: string; path: string } | null>(null)
+  openHandlerRef.current = (file) => {
+    if (lastOpenRef.current !== null
+      && lastOpenRef.current.root === file.root && lastOpenRef.current.path === file.path) return
+    lastOpenRef.current = { root: file.root, path: file.path }
+    setOpened({ root: file.root, name: file.name, path: file.path })
+  }
+  useEffect(() => subscribeOpen((file) => { openHandlerRef.current(file) }), [subscribeOpen])
 
   // Mount the push stylesheet once; the width variables below drive it.
   useEffect(() => {
@@ -174,45 +174,6 @@ export function TextviewerDock(
     event.currentTarget.releasePointerCapture(event.pointerId)
     if (current !== null) setWidth(current.lastWidth)
   }
-
-  /** Write the current tree-region height share straight to the DOM. */
-  const applyDragTree = (next: number): void => {
-    const clamped = Math.min(MAX_TREE_RATIO, Math.max(MIN_TREE_RATIO, next))
-    const rounded = Math.round(clamped * 1000) / 1000
-    if (treeRef.current !== null) treeRef.current.style.flexBasis = `${rounded * 100}%`
-    if (dragTree.current !== null) dragTree.current.lastRatio = rounded
-  }
-
-  const onTreeDividerPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
-    event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    dragTree.current = { startY: event.clientY, startRatio: treeRatio, lastRatio: treeRatio }
-    setDragging(true)
-    document.documentElement.dataset.dshTextviewerDragging = ''
-  }
-  const onTreeDividerPointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const current = dragTree.current
-    if (current === null) return
-    const height = panelRef.current?.clientHeight ?? 1
-    // Dragging the divider up grows the tree region (its bottom edge rises).
-    applyDragTree(current.startRatio + (current.startY - event.clientY) / height)
-  }
-  const onTreeDividerPointerUp = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const current = dragTree.current
-    dragTree.current = null
-    setDragging(false)
-    delete document.documentElement.dataset.dshTextviewerDragging
-    event.currentTarget.releasePointerCapture(event.pointerId)
-    if (current !== null) setTreeRatio(current.lastRatio)
-  }
-
-  // A different workspace resets the selection (the tree re-roots itself).
-  useEffect(() => {
-    if (previousRoot.current !== cwd) {
-      previousRoot.current = cwd
-      setSelectedFile(null)
-    }
-  }, [cwd])
 
   return (
     <div
@@ -281,42 +242,14 @@ export function TextviewerDock(
               <IconChevronRightOutline14 size={14} />
             </button>
           </div>
-          {/* Tree region: its own title bar + share of the height. */}
-          <div ref={treeRef} className={css.section} style={{ flexGrow: 0, flexShrink: 1, flexBasis: `${treeRatio * 100}%`, transition: dragging ? 'none' : 'flex-basis 160ms ease' }}>
-            <div className={css.sectionTitle}>{t('tree.title')}</div>
-            <div className={css.sectionBody}>
-              {root === undefined ? (
-                <div className={css.message}>{t('viewer.no-workspace')}</div>
-              ) : (
-                <FileTree
-                  root={root}
-                  list={list}
-                  t={t}
-                  selectedPath={selectedFile?.path ?? null}
-                  onSelectFile={setSelectedFile}
-                />
-              )}
-            </div>
-          </div>
-          {/* Divider between the tree and the preview region. */}
-          <div
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label={t('divider.label')}
-            className={css.dividerH}
-            onPointerDown={onTreeDividerPointerDown}
-            onPointerMove={onTreeDividerPointerMove}
-            onPointerUp={onTreeDividerPointerUp}
-            onPointerCancel={onTreeDividerPointerUp}
-          />
-          {/* Preview region: flex-remaining; TextViewer owns its header+scroll. */}
+          {/* Preview region: the whole surface below the title bar. */}
           <div className={css.section} style={{ flexGrow: 1, flexShrink: 1, flexBasis: '0%', minHeight: 0 }}>
-            {root === undefined ? (
-              <div className={css.message}>{t('viewer.no-workspace')}</div>
+            {opened === null ? (
+              <div className={css.message}>{t('viewer.empty')}</div>
             ) : (
               <TextViewer
-                root={root}
-                file={selectedFile}
+                root={opened.root}
+                file={{ name: opened.name, path: opened.path }}
                 dark={dark}
                 t={t}
                 readText={readText}

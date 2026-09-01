@@ -9,13 +9,11 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {
-  TextviewerListing, TextviewerListRequest, TextviewerReadRequest, TextviewerRendererResult, TextviewerSnapshot,
+  TextviewerReadRequest, TextviewerRendererResult, TextviewerSnapshot,
 } from '../contract.ts'
 
 /** Callback face the view consumes; plain data and callbacks only. */
 export interface TextviewerClient {
-  /** List one level of the tree (root when `path` is absent). */
-  list(root: string | undefined, path: string | undefined, signal: AbortSignal): Promise<RpcResult<TextviewerListing>>
   /** Read one decoded chunk of a file (`offset` in bytes, host-aligned). */
   readText(root: string, path: string, offset: number, limit: number | undefined, signal: AbortSignal): Promise<RpcResult<TextviewerSnapshot>>
   /** Fetch the lazy renderer bundle source (evaluated once, then cached). */
@@ -32,14 +30,6 @@ export function createTextviewerClient(ctx: Context): TextviewerClient {
   // browser ConnectionHandle (same service, client-side face).
   const connection = ctx.get('connection') as unknown as ConnectionHandle
   return {
-    list: async (root, path, signal) => {
-      const payload: TextviewerListRequest = {
-        ...(root === undefined ? {} : { root }),
-        ...(path === undefined ? {} : { path }),
-      }
-      const result = await connection.rpc.call('/textviewer', 'list', payload, signal)
-      return result as RpcResult<TextviewerListing>
-    },
     readText: async (root, path, offset, limit, signal) => {
       const payload: TextviewerReadRequest = {
         root,

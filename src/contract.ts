@@ -1,42 +1,11 @@
 /**
  * Shared /textviewer wire contract. Pure types only: both halves import
  * this module without pulling each other's runtime code into their bundles.
+ *
+ * There is deliberately NO listing contract here: the file tree belongs to
+ * the ui-cw-fileexplorer plugin, which broadcasts open-file events (see
+ * TextviewerOpenEvent) that this viewer subscribes to.
  */
-
-/** One listed row (no git states in v1 — the viewer is format-focused). */
-export interface TextviewerEntry {
-  /** Base name shown in a row. */
-  name: string
-  /** Absolute host path — the client never joins path segments itself. */
-  path: string
-  kind: 'file' | 'dir'
-  /** Byte size; absent when the probe could not produce one. */
-  size?: number
-  /** Last-modification epoch ms; absent when the probe could not produce one. */
-  mtimeMs?: number
-  /** Hidden by the platform's dot-prefix convention; the client owns whether to show it. */
-  hidden: boolean
-}
-
-/** The list response value. */
-export interface TextviewerListing {
-  /** Absolute path of the listed directory. */
-  path: string
-  /** Direct children, directories first then name-sorted. */
-  entries: TextviewerEntry[]
-  /** True when the backend cut `entries` at its complete-result bound (the name-sorted tail is absent). */
-  truncated: boolean
-}
-
-/** list request payload; an absent path lists the root (or the host process cwd). */
-export interface TextviewerListRequest {
-  path?: string
-  /**
-   * Locked root (the session workspace): when present, `path` must equal it
-   * or descend from it — the viewer cannot escape the workspace.
-   */
-  root?: string
-}
 
 /** Encodings the reader can serve (BOM-detected UTF-8/16, or GBK fallback). */
 export type TextviewerEncoding = 'UTF-8' | 'UTF-16LE' | 'UTF-16BE' | 'GBK'
@@ -81,3 +50,18 @@ export interface TextviewerRendererResult {
   code: string
 }
 
+/**
+ * Cross-plugin open-file event (client-side, broadcast by
+ * ui-cw-fileexplorer through the cordis event bus — event name
+ * `ui-cw/fileexplorer/file-open`, emitted on the emitter's scope and
+ * received on the root context). Carries the locked workspace root with the
+ * file so the receiver never needs its own listing.
+ */
+export interface TextviewerOpenEvent {
+  /** Base name shown in headers. */
+  name: string
+  /** Absolute host path of the file to open. */
+  path: string
+  /** Locked workspace root the file lives in (read-text scope). */
+  root: string
+}
