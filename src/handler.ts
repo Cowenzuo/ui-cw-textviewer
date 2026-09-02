@@ -96,18 +96,59 @@ export function detectEncoding(head: Buffer): TextviewerEncoding {
   return 'UTF-8'
 }
 
+/** Reusable strict UTF-8 decoder (fatal: the GBK fallback depends on it). */
+const UTF8_STRICT = new TextDecoder('utf-8', { fatal: true })
+
 /**
- * Decode one chunk, reporting the encoding it actually decoded as. UTF-8 is
- * decoded strictly (fatal): on failure the chunk is legacy GBK (the common
- * non-UTF-8 Chinese encoding). UTF-16 is decoded through the WHATWG
- * decoders, which strip a leading BOM automatically.
+ * Decode the bytes of one chunk, returning the text and the ACTUAL encoding
+ * plus the byte count to report (after boundary trimming). The trim must
+ * use the REAL encoding — a GBK trail byte that looks like a UTF-8 lead
+ * would be wrongly trimmed under the provisional UTF-8, and a split UTF-8
+ * tail would fail the strict decode before the trim gets a chance. Order:
+ * strict UTF-8 on the raw chunk → UTF-8-trimmed retry → GBK (trimmed with
+ * the GBK rule for a clean seam). BOM-detected/hinted encodings are
+ * authoritative: trim with them directly.
  */
+function decodeChunkBytes(
+  buffer: Buffer,
+  rawBytes: number,
+  provisional: TextviewerEncoding,
+  atEof: boolean,
+): { text: string; encoding: TextviewerEncoding; bytes: number } {
+  if (provisional === 'UTF-16LE' || provisional === 'UTF-16BE' || provisional === 'GBK') {
+    const bytes = atEof ? rawBytes : trimToBoundary(buffer, rawBytes, provisional)
+    const out = decodeChunk(buffer.subarray(0, bytes), provisional)
+    return { text: out.text, encoding: out.encoding, bytes }
+  }
+  // Provisional UTF-8.
+  try {
+    const text = UTF8_STRICT.decode(buffer.subarray(0, rawBytes))
+    return { text, encoding: 'UTF-8', bytes: rawBytes }
+  } catch {
+    // A split tail fails the raw strict decode — trim and retry.
+  }
+  const utfTrimmed = atEof ? rawBytes : trimToBoundary(buffer, rawBytes, 'UTF-8')
+  try {
+    const text = UTF8_STRICT.decode(buffer.subarray(0, utfTrimmed))
+    return { text, encoding: 'UTF-8', bytes: utfTrimmed }
+  } catch {
+    // Genuinely not UTF-8 → legacy GBK, trimmed with the GBK rule.
+  }
+  const gbkBytes = atEof ? rawBytes : trimToBoundary(buffer, rawBytes, 'GBK')
+  const out = decodeChunk(buffer.subarray(0, gbkBytes), 'GBK')
+  return { text: out.text, encoding: out.encoding, bytes: gbkBytes }
+}
 export function decodeChunk(buffer: Buffer, provisional: TextviewerEncoding): { text: string; encoding: TextviewerEncoding } {
   if (provisional === 'UTF-16LE' || provisional === 'UTF-16BE') {
     return {
       text: new TextDecoder(provisional === 'UTF-16LE' ? 'utf-16le' : 'utf-16be').decode(buffer),
       encoding: provisional,
     }
+  }
+  if (provisional === 'GBK') {
+    // An explicit encoding hint (a later chunk of a GBK file) decodes
+    // directly — never through the UTF-8 attempt.
+    return { text: iconv.decode(buffer, 'gbk'), encoding: 'GBK' }
   }
   try {
     return { text: new TextDecoder('utf-8', { fatal: true }).decode(buffer), encoding: 'UTF-8' }
@@ -121,6 +162,39 @@ function alignOffset(offset: number, encoding: TextviewerEncoding): number {
   return encoding === 'UTF-16LE' || encoding === 'UTF-16BE' ? offset - (offset % 2) : offset
 }
 
+/**
+ * Trim a chunk tail so it ends on a complete character. A boundary cutting
+ * a multi-byte character mid-sequence would otherwise corrupt decoding: a
+ * UTF-8 chunk ending mid-character fails the STRICT decode and the WHOLE
+ * chunk falls back to GBK — intermittent full-chunk mojibake in big files.
+ * The trimmed bytes are re-read as the head of the next chunk (the client
+ * offsets by the returned `bytes`), so nothing is lost.
+ */
+export function trimToBoundary(buffer: Buffer, bytes: number, encoding: TextviewerEncoding): number {
+  if (encoding === 'UTF-8') {
+    let i = bytes
+    // Walk back over continuation bytes to the lead byte of the last sequence.
+    while (i > 0 && (buffer[i - 1]! & 0xc0) === 0x80) i -= 1
+    if (i === 0) return bytes // no lead in sight — malformed tail, keep as-is
+    const lead = buffer[i - 1]!
+    const need = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1
+    return bytes - (i - 1) < need ? i - 1 : bytes
+  }
+  if (encoding === 'GBK' && bytes > 0) {
+    // A trailing HIGH byte is either the trail half of a COMPLETE pair
+    // (previous byte is a GBK lead 0x81–0xFE) or a LONE lead half of a
+    // split pair — only the lone half is trimmed.
+    const last = buffer[bytes - 1]!
+    if (last < 0x80) return bytes
+    if (bytes >= 2) {
+      const prev = buffer[bytes - 2]!
+      if (prev >= 0x81 && prev <= 0xfe && last !== 0x7f) return bytes // complete pair
+    }
+    return bytes - 1
+  }
+  return bytes
+}
+
 /** Human line count: a trailing newline closes the last line, it does not open a new one. */
 function countLines(text: string): number {
   if (text === '') return 0
@@ -132,26 +206,44 @@ function countLines(text: string): number {
 }
 
 /**
- * Read one decoded chunk of a file. The encoding is re-detected from the
- * head on every call (a 4–8 byte peek — negligible), so chunked reads after
- * the first stay deterministic. UTF-16 offsets are aligned down to an even
- * byte; the first chunk carries the binary sniff.
+ * Read one decoded chunk of a file. The encoding comes from the caller's
+ * HINT when provided (the first chunk's detected encoding, carried forward
+ * by the client — stable per file, no re-detection surprises); otherwise it
+ * is detected from the head (a 4–8 byte peek, first chunk only). UTF-16
+ * offsets are aligned down to an even byte; non-final chunk tails are
+ * trimmed to character boundaries (trimToBoundary) so a mid-character
+ * boundary never corrupts the decode; the first chunk carries the binary
+ * sniff.
  */
-export async function readTextChunk(path: string, offset: number, limit: number, signal: AbortSignal): Promise<TextviewerSnapshot> {
+export async function readTextChunk(
+  path: string,
+  offset: number,
+  limit: number,
+  encodingHint: TextviewerEncoding | undefined,
+  signal: AbortSignal,
+): Promise<TextviewerSnapshot> {
   if (signal.aborted) throw new Error('read-text was aborted')
   const st = await stat(path)
   if (!st.isFile()) throw new Error(`not a regular file: ${path}`)
   const handle = await open(path, 'r')
   try {
-    const head = Buffer.alloc(8)
-    const headRead = await handle.read(head, 0, head.length, 0)
-    const encoding = detectEncoding(head.subarray(0, headRead.bytesRead))
+    let encoding = encodingHint
+    if (encoding === undefined) {
+      const head = Buffer.alloc(8)
+      const headRead = await handle.read(head, 0, head.length, 0)
+      encoding = detectEncoding(head.subarray(0, headRead.bytesRead))
+    }
     const start = Math.min(alignOffset(offset, encoding), st.size)
     const want = Math.min(limit, st.size - start)
     const buffer = Buffer.alloc(want)
     const chunkRead = await handle.read(buffer, 0, want, start)
-    const bytes = chunkRead.bytesRead
-    const { text, encoding: actual } = decodeChunk(buffer.subarray(0, bytes), encoding)
+    const rawBytes = chunkRead.bytesRead
+    const atEof = start + rawBytes >= st.size
+    // Decode with boundary-aware trimming (decodeChunkBytes owns the
+    // UTF-8/GBK ladder and reports the real byte count). At EOF there is no
+    // next chunk to carry a partial sequence into — nothing is trimmed and
+    // the fallback handles a malformed tail.
+    const { text, encoding: actual, bytes } = decodeChunkBytes(buffer, rawBytes, encoding, atEof)
     const binary = start === 0 && bytes > 0 && buffer.subarray(0, Math.min(BINARY_PROBE_BYTES, bytes)).includes(0)
     const lineCount = countLines(text)
     return {
@@ -232,8 +324,12 @@ export function createTextviewerHandler(options: TextviewerHandlerOptions = {}):
     const offsetRaw = readPayload?.offset
     const offset = typeof offsetRaw === 'number' && Number.isInteger(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0
     const limit = clampReadLimit(readPayload?.limit)
+    // Encoding stability: the client carries the first chunk's detected
+    // encoding forward, so later chunks never re-fall-back (a GBK chunk that
+    // happens to be valid UTF-8 must not flip mid-file).
+    const encoding = (readPayload?.encoding as TextviewerEncoding | undefined) ?? undefined
     try {
-      const snapshot = await readTextChunk(readPath, offset, limit, signal)
+      const snapshot = await readTextChunk(readPath, offset, limit, encoding, signal)
       return { ok: true, value: snapshot }
     } catch (error) {
       if (signal.aborted) return { ok: false, error: { code: 'cancelled', message: 'textviewer read was aborted', details: {} } }

@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
   clampReadLimit, createTextviewerHandler, decodeChunk, detectEncoding, isWithin,
-  READ_DEFAULT_LIMIT, READ_MAX_LIMIT,
+  readTextChunk, trimToBoundary, READ_DEFAULT_LIMIT, READ_MAX_LIMIT,
 } from '../src/handler.ts'
 import type { TextviewerSnapshot } from '../src/contract.ts'
 
@@ -72,6 +72,26 @@ describe('isWithin', () => {
     expect(isWithin(root, root)).toBe(true)
     expect(isWithin(root, inside)).toBe(true)
     expect(isWithin(root, sibling)).toBe(false)
+  })
+})
+
+describe('trimToBoundary', () => {
+  it('keeps complete UTF-8 sequences and trims split tails', () => {
+    // 字 = E8 AF 97 (3 bytes). Complete triple → untouched.
+    const full = Buffer.from('字', 'utf8')
+    expect(trimToBoundary(full, 3, 'UTF-8')).toBe(3)
+    // Split tail: E8 AF only (2 of 3 bytes) → trim both.
+    expect(trimToBoundary(full, 2, 'UTF-8')).toBe(0)
+    // ASCII tail untouched.
+    expect(trimToBoundary(Buffer.from('ab'), 2, 'UTF-8')).toBe(2)
+  })
+
+  it('trims a trailing GBK pair half', () => {
+    // 汉 = BA BA (2 bytes). Complete pair untouched; a lone trailing half trims.
+    const pair = Buffer.from([0xba, 0xba])
+    expect(trimToBoundary(pair, 2, 'GBK')).toBe(2)
+    expect(trimToBoundary(pair, 1, 'GBK')).toBe(0)
+    expect(trimToBoundary(Buffer.from([0x61, 0xba]), 2, 'GBK')).toBe(1)
   })
 })
 
@@ -176,6 +196,48 @@ describe('textviewer handler', () => {
     expect(second.truncated).toBe(false)
     // Appending the chunks reproduces the file exactly.
     expect(first.content + second.content).toBe('a'.repeat(600 * 1024))
+  })
+
+  it('keeps chunk boundaries on character edges — a mid-character split never corrupts decoding', async () => {
+    // 字 = 3 UTF-8 bytes: 262144 % 3 = 1, so the default chunk boundary cuts
+    // a character. Before the trim this chunk failed strict UTF-8 and the
+    // WHOLE 256KB fell back to GBK (intermittent big-file mojibake).
+    const file = join(root, 'utf8-big.txt')
+    const text = '字'.repeat(90000) // 270000 bytes
+    await writeFile(file, text, 'utf8')
+    const handler = createTextviewerHandler()
+    const first = expectSnapshot(await handler('read-text', { root, path: file }, new AbortController().signal))
+    expect(first.encoding).toBe('UTF-8')
+    expect(first.bytes % 3).toBe(0) // trimmed to a character edge
+    const second = expectSnapshot(await handler(
+      'read-text', { root, path: file, offset: first.offset + first.bytes }, new AbortController().signal,
+    ))
+    expect(second.encoding).toBe('UTF-8')
+    // The trimmed bytes are re-read as the next chunk's head — lossless join.
+    expect(first.content + second.content).toBe(text)
+  })
+
+  it('carries the encoding hint forward so multi-chunk GBK stays stable', async () => {
+    const file = join(root, 'gbk-big.txt')
+    // 中 in GBK = D6 D0 (2 bytes) — built manually, no iconv in tests.
+    const pair = Buffer.from([0xd6, 0xd0])
+    const text = '中'.repeat(4000) // 8000 GBK bytes
+    await writeFile(file, Buffer.concat(Array.from({ length: 4000 }, () => pair)))
+    const handler = createTextviewerHandler()
+    const first = expectSnapshot(await handler(
+      'read-text', { root, path: file, limit: 3000 }, new AbortController().signal,
+    ))
+    expect(first.encoding).toBe('GBK')
+    // The client sends the first chunk's encoding as the hint for later ones.
+    const second = expectSnapshot(await handler(
+      'read-text', { root, path: file, offset: 3000, limit: 3000, encoding: 'GBK' }, new AbortController().signal,
+    ))
+    expect(second.encoding).toBe('GBK')
+    const third = expectSnapshot(await handler(
+      'read-text', { root, path: file, offset: 6000, limit: 3000, encoding: 'GBK' }, new AbortController().signal,
+    ))
+    expect(first.content + second.content + third.content).toBe(text)
+    expect(second.bytes % 2).toBe(0) // GBK pairs stay intact
   })
 
   it('clamps a submitted limit and aligns UTF-16 offsets to even bytes', async () => {

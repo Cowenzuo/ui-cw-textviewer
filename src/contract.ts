@@ -42,6 +42,12 @@ export interface TextviewerReadRequest {
   offset?: number
   /** Byte size of the chunk; the host clamps it to a sane bound. */
   limit?: number
+  /**
+   * Encoding hint carried forward from the first chunk's detection: later
+   * chunks decode with it directly (no re-detection, no fallback flips).
+   * Absent on the first chunk — the host detects.
+   */
+  encoding?: TextviewerEncoding
 }
 
 /** renderer response value: the lazy renderer bundle source (self-contained). */

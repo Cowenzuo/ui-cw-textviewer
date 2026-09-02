@@ -44,7 +44,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { NS } from './locales.ts'
-import type { TextviewerSnapshot } from '../contract.ts'
+import type { TextviewerEncoding, TextviewerSnapshot } from '../contract.ts'
 import { loadRenderer } from './renderer-loader.ts'
 import type { RendererExports } from './renderer-contract.ts'
 import css from './TextViewer.module.css'
@@ -128,7 +128,7 @@ export function TextViewer(props: {
   file: { name: string; path: string } | null
   dark: boolean
   t: TranslateNS<typeof NS>
-  readText: (root: string, path: string, offset: number, limit: number | undefined, signal: AbortSignal) => Promise<RpcResult<TextviewerSnapshot>>
+  readText: (root: string, path: string, offset: number, limit: number | undefined, encoding: TextviewerEncoding | undefined, signal: AbortSignal) => Promise<RpcResult<TextviewerSnapshot>>
   /** RPC-backed fetch of the lazy renderer bundle source. */
   rendererBundle: () => Promise<string>
 }): React.JSX.Element {
@@ -160,6 +160,10 @@ export function TextViewer(props: {
   // The file the current stream belongs to: in-flight chunks of a previous
   // file must not append into the next file's surface (switch race).
   const pathRef = useRef<string | null>(null)
+  // The first chunk's detected encoding, carried forward to later chunks so
+  // they decode stably (a GBK chunk that happens to be valid UTF-8 must not
+  // flip back mid-file).
+  const encodingRef = useRef<TextviewerEncoding | undefined>(undefined)
 
   /** Full document text for the markdown renderer (rarely huge). */
   const mdContent = useMemo(() => chunks.join(''), [chunks])
@@ -175,6 +179,7 @@ export function TextViewer(props: {
 
   const append = (snapshot: TextviewerSnapshot): void => {
     bytesRef.current = snapshot.offset + snapshot.bytes
+    encodingRef.current = snapshot.encoding
     setMeta({
       size: snapshot.size,
       encoding: snapshot.encoding,
@@ -193,7 +198,7 @@ export function TextViewer(props: {
     const target = file.path
     loadingRef.current = true
     setLoading(true)
-    void readText(root, target, bytesRef.current, undefined, new AbortController().signal).then(result => {
+    void readText(root, target, bytesRef.current, undefined, encodingRef.current, new AbortController().signal).then(result => {
       loadingRef.current = false
       setLoading(false)
       if (pathRef.current !== target) return // the user switched files meanwhile
@@ -216,13 +221,14 @@ export function TextViewer(props: {
     loadingRef.current = false
     atBottomRef.current = false
     pinnedRef.current = false
+    encodingRef.current = undefined
     pathRef.current = file === null ? null : file.path
     if (file === null) return
     let cancelled = false
     setLoading(true)
     loadingRef.current = true
     const target = file.path
-    void readText(root, target, 0, undefined, new AbortController().signal).then(result => {
+    void readText(root, target, 0, undefined, undefined, new AbortController().signal).then(result => {
       loadingRef.current = false
       if (cancelled) return
       if (pathRef.current !== target) return // switched again mid-flight

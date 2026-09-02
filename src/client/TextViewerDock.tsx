@@ -23,8 +23,9 @@ import css from './TextViewerDock.module.css'
 
 /** Business callbacks injected by the register site (apply world). */
 export interface TextviewerInjected {
-  /** Read one decoded chunk of a file inside the locked root. */
-  readText(root: string, path: string, offset: number, limit: number | undefined, signal: AbortSignal): Promise<import('@deepseek-ai/dsh-host-apiproxy/api').RpcResult<import('../contract.ts').TextviewerSnapshot>>
+  /** Read one decoded chunk of a file inside the locked root (encoding
+   * hint carried forward from the first chunk; absent → host detects). */
+  readText(root: string, path: string, offset: number, limit: number | undefined, encoding: import('../contract.ts').TextviewerEncoding | undefined, signal: AbortSignal): Promise<import('@deepseek-ai/dsh-host-apiproxy/api').RpcResult<import('../contract.ts').TextviewerSnapshot>>
   /** Fetch the lazy renderer bundle source (throws on transport failure). */
   rendererBundle(): Promise<string>
   /** Subscribe to fileexplorer's open-file events; returns an unsubscribe. */

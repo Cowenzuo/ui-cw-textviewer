@@ -9,13 +9,17 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {
-  TextviewerReadRequest, TextviewerRendererResult, TextviewerSnapshot,
+  TextviewerEncoding, TextviewerReadRequest, TextviewerRendererResult, TextviewerSnapshot,
 } from '../contract.ts'
 
 /** Callback face the view consumes; plain data and callbacks only. */
 export interface TextviewerClient {
-  /** Read one decoded chunk of a file (`offset` in bytes, host-aligned). */
-  readText(root: string, path: string, offset: number, limit: number | undefined, signal: AbortSignal): Promise<RpcResult<TextviewerSnapshot>>
+  /**
+   * Read one decoded chunk of a file (`offset` in bytes, host-aligned).
+   * `encoding` is the first chunk's detected encoding, carried forward so
+   * later chunks decode stably (absent → the host detects).
+   */
+  readText(root: string, path: string, offset: number, limit: number | undefined, encoding: TextviewerEncoding | undefined, signal: AbortSignal): Promise<RpcResult<TextviewerSnapshot>>
   /** Fetch the lazy renderer bundle source (evaluated once, then cached). */
   renderer(signal: AbortSignal): Promise<RpcResult<TextviewerRendererResult>>
 }
@@ -30,12 +34,13 @@ export function createTextviewerClient(ctx: Context): TextviewerClient {
   // browser ConnectionHandle (same service, client-side face).
   const connection = ctx.get('connection') as unknown as ConnectionHandle
   return {
-    readText: async (root, path, offset, limit, signal) => {
+    readText: async (root, path, offset, limit, encoding, signal) => {
       const payload: TextviewerReadRequest = {
         root,
         path,
         ...(offset > 0 ? { offset } : {}),
         ...(limit === undefined ? {} : { limit }),
+        ...(encoding === undefined ? {} : { encoding }),
       }
       const result = await connection.rpc.call('/textviewer', 'read-text', payload, signal)
       return result as RpcResult<TextviewerSnapshot>
