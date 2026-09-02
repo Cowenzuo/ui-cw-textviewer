@@ -23,7 +23,10 @@ describe('renderer bundle (built artifact)', () => {
     const renderer = await loadRenderer(async () => readFileSync(BUNDLE, 'utf8'))
     expect(renderer.getHighlighter).toBeTypeOf('function')
     expect(renderer.HighlightedCode).toBeTypeOf('function')
-    expect(renderer.MarkdownView).toBeTypeOf('function')
+    // Memoized (see renderer.tsx — the memo prevents react-markdown
+    // re-parse remounts): a memo component is an object, not a plain fn.
+    expect(renderer.MarkdownView).toBeTypeOf('object')
+    expect(renderer.MarkdownView).not.toBeNull()
 
     // Shiki: cpp tokens with line spans (the plain surface has neither).
     const html = await renderer.getHighlighter().then(highlighter => highlighter.codeToHtml(

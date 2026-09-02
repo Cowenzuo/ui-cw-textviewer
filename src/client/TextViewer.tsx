@@ -475,7 +475,10 @@ function TextStream(props: {
    * decoded before resolving; an empty href (the default urlTransform
    * strips unsafe/absolute paths) and in-page `#` anchors do nothing.
    */
-  const handleLinkClick = (href: string, event: React.MouseEvent<HTMLAnchorElement>): void => {
+  // STABLE identity (useCallback): MarkdownView is memoized — a fresh
+  // handler every render would defeat the memo and re-fire react-markdown's
+  // parse (remounting mermaid fences → loading flash during drags).
+  const handleLinkClick = useCallback((href: string, event: React.MouseEvent<HTMLAnchorElement>): void => {
     event.preventDefault()
     if (href === '' || href.startsWith('#')) return
     if (/^(https?:|mailto:|tel:)/i.test(href)) {
@@ -496,7 +499,8 @@ function TextStream(props: {
     // still validates path-within-root, so only this exact file is readable
     // under this root.
     openFile({ name: basenamePath(resolved), path: resolved, root: dirnamePath(resolved) })
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- openFile/file are stream-stable
+  }, [file.path, openFile])
 
   return (
     <>

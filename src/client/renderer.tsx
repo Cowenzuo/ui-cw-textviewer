@@ -7,7 +7,7 @@
  * The factory receives `React` and `ReactJsxRuntime` from the caller (the
  * shell-seeded module table owns them); everything else is bundled here.
  */
-import { createElement, isValidElement, useEffect, useState } from 'react'
+import { createElement, isValidElement, memo, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { createHighlighterCore, type HighlighterCore } from 'shiki/core'
@@ -105,8 +105,19 @@ function MermaidFenceSlot(props: {
   return createElement(fence, { source, dark, fallback })
 }
 
-/** GFM markdown view (tables, strikethrough, autolinks, task lists…). */
-export function MarkdownView(props: {
+/**
+ * GFM markdown view (tables, strikethrough, autolinks, task lists…).
+ *
+ * MEMOIZED — and the memo is load-bearing: react-markdown v10 re-parses on
+ * every render whose plugin arrays changed identity (the caller must keep
+ * remarkPlugins' siblings stable: content, onLinkClick, mermaidFence) and
+ * each re-parse REPLACES the tree, which REMOUNTS every custom component —
+ * a mermaid fence remount resets its diagram state and flashes the loading
+ * label (the drag-flicker: any parent re-render during a width drag re-fired
+ * the whole chain). With equal props the memo bails out entirely and the
+ * fence keeps its mounted state.
+ */
+export const MarkdownView = memo(function MarkdownView(props: {
   content: string
   onLinkClick?: (href: string, event: React.MouseEvent<HTMLAnchorElement>) => void
   dark?: boolean
@@ -179,7 +190,7 @@ export function MarkdownView(props: {
       </ReactMarkdown>
     </div>
   )
-}
+})
 
 /** The bundle's public face (what the loader's factory must return). */
 export const rendererExports: RendererExports = { getHighlighter, HighlightedCode, MarkdownView }

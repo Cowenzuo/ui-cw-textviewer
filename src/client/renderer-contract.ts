@@ -10,8 +10,11 @@ export interface RendererExports {
   getHighlighter(): Promise<import('shiki/core').HighlighterCore>
   /** Shiki output for one code chunk (keeps previous HTML while re-highlighting). */
   HighlightedCode(props: { content: string; lang: string; dark: boolean }): React.JSX.Element
-  /** GFM markdown view. */
-  MarkdownView(props: {
+  /** GFM markdown view (MEMOIZED — see renderer.tsx: the memo is load-bearing
+   * because react-markdown remounts custom components whenever it re-parses,
+   * and re-parsing fires on any render whose plugin/prop identities changed).
+   * ComponentType (not a plain function type) to admit the memo wrapper. */
+  MarkdownView: React.ComponentType<{
     content: string
     /**
      * Link-click interceptor: the MAIN bundle decides what a link means
@@ -29,7 +32,7 @@ export interface RendererExports {
      * actually exists. Absent → fences render as plain code blocks.
      */
     mermaidFence?: React.ComponentType<MermaidFenceProps>
-  }): React.JSX.Element
+  }>
 }
 
 /** One ```mermaid fence handed to the injected renderer. */

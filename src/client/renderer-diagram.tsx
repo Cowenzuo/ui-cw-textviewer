@@ -86,14 +86,24 @@ export async function renderDiagram(source: string, dark: boolean): Promise<Diag
  * stays on screen while a re-render runs — no flash on theme flips or chunk
  * appends); a syntax error swaps in an error box with the raw source below
  * (content never disappears).
+ *
+ * The last successful render is ALSO cached at MODULE level: react-markdown
+ * remounts its custom components on re-parse (a fence remount would reset
+ * this component's state and flash the loading label), so a remount with an
+ * unchanged source+dark starts from the cached SVG instead of a blank
+ * loading state.
  */
+let lastGood: { source: string; dark: boolean; html: string } | null = null
+
 export function MermaidView(props: {
   source: string
   dark: boolean
   labels?: { loading?: string; error?: string }
 }): React.JSX.Element {
   const { source, dark, labels } = props
-  const [html, setHtml] = useState<string | null>(null)
+  const [html, setHtml] = useState<string | null>(() => (
+    lastGood !== null && lastGood.source === source && lastGood.dark === dark ? lastGood.html : null
+  ))
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
 
@@ -110,6 +120,7 @@ export function MermaidView(props: {
       if (cancelled) return
       setPending(false)
       if (result.ok) {
+        lastGood = { source, dark, html: result.svg }
         setHtml(result.svg)
         setError(null)
       } else {
