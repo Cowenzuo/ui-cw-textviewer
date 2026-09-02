@@ -7,7 +7,7 @@
  * The factory receives `React` and `ReactJsxRuntime` from the caller (the
  * shell-seeded module table owns them); everything else is bundled here.
  */
-import { useEffect, useState } from 'react'
+import { createElement, isValidElement, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { createHighlighterCore, type HighlighterCore } from 'shiki/core'
@@ -87,6 +87,24 @@ export function HighlightedCode(props: { content: string; lang: string; dark: bo
   return <div className={css.code} dangerouslySetInnerHTML={{ __html: html }} />
 }
 
+/**
+ * Sentinel wrapper for a ```mermaid fence: the code override returns THIS
+ * (never a <pre>), and the pre override unwraps it — react-markdown renders
+ * its own <pre> around block-code component output, so returning a <pre>
+ * from the code component would nest <pre><pre><code> (the double-frame
+ * regression), and a bare fence div would sit inside the auto-<pre>. The
+ * fence IS NOT a code block: it renders unwrapped on the markdown surface.
+ */
+function MermaidFenceSlot(props: {
+  fence: React.ComponentType<MermaidFenceProps>
+  source: string
+  dark: boolean
+  fallback?: React.ReactNode
+}): React.JSX.Element {
+  const { fence, source, dark, fallback } = props
+  return createElement(fence, { source, dark, fallback })
+}
+
 /** GFM markdown view (tables, strikethrough, autolinks, task lists…). */
 export function MarkdownView(props: {
   content: string
@@ -118,32 +136,42 @@ export function MarkdownView(props: {
               }}
             />
           ),
-          // code covers BOTH block fences and inline code — react-markdown
-          // does not say which (the `node` prop only exists with passNode),
-          // so block-ness is inferred: a language class or a newline means a
-          // fenced block (mdast inline code is single-line by construction).
+          // pre: block code arrives here with the code component's output as
+          // its child. A mermaid fence (the MermaidFenceSlot) must NOT be
+          // boxed in a pre — everything else keeps the default wrapper.
+          pre: (preProps) => {
+            const kids = preProps.children
+            const single = Array.isArray(kids) && kids.length === 1 ? kids[0] : kids
+            if (isValidElement(single) && (single.type as unknown) === MermaidFenceSlot) {
+              return <>{single}</>
+            }
+            return <pre>{kids}</pre>
+          },
+          // code covers BOTH block fences and inline code (react-markdown
+          // renders the block <pre> wrapper itself around this output, so
+          // ONLY a <code> element is ever returned here — a nested <pre>
+          // produced the double-frame regression). Inline code has no
+          // language class; fences with an info string carry `language-x`.
           code: (codeProps) => {
             const className = String(codeProps.className ?? '')
-            const text = String(codeProps.children ?? '')
-            const isBlock = className !== '' || text.includes('\n')
             // ```mermaid fences go to the INJECTED renderer (the main
             // bundle's lazy DiagramHost); the mermaid engine never rides
             // inside this bundle. Absent (standalone use, tests, worker) →
             // the fence renders as its default code block.
-            if (isBlock && className.split(/\s+/).includes('language-mermaid')) {
+            if (className.split(/\s+/).includes('language-mermaid')) {
               if (Fence === undefined) {
-                return <pre><code className={codeProps.className}>{codeProps.children}</code></pre>
+                return <code className={className}>{codeProps.children}</code>
               }
               return (
-                <Fence
-                  source={text}
+                <MermaidFenceSlot
+                  fence={Fence}
+                  source={String(codeProps.children ?? '')}
                   dark={dark}
-                  fallback={<pre className={css.mdFenceFallback}><code className={codeProps.className}>{codeProps.children}</code></pre>}
+                  fallback={<pre className={css.mdFenceFallback}><code className={className}>{codeProps.children}</code></pre>}
                 />
               )
             }
-            if (isBlock) return <pre><code className={codeProps.className}>{codeProps.children}</code></pre>
-            return <code className={codeProps.className}>{codeProps.children}</code>
+            return <code className={className}>{codeProps.children}</code>
           },
         }}
       >

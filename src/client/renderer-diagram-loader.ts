@@ -55,6 +55,21 @@ const urlStub = {
 }
 urlStub.default = urlStub
 
+// The bundled lodash probes `module.require("util")` inside try/catch (its
+// node-detection shim) — the registry's fake module has no require, so the
+// probe never fires today. The stub is drift insurance: if a future bundle
+// really requires util, the load must not die on a missing word.
+const utilStub = interop({
+  types: {},
+  format: (...args: unknown[]): string => args.map(String).join(' '),
+  inspect: (value: unknown): string => String(value),
+  deprecate: <A extends unknown[]>(fn: (...args: A) => unknown): ((...args: A) => unknown) => fn,
+  isArray: Array.isArray,
+  isString: (value: unknown): value is string => typeof value === 'string',
+  isNumber: (value: unknown): value is number => typeof value === 'number',
+  isObject: (value: unknown): boolean => value !== null && typeof value === 'object',
+})
+
 /**
  * Get the diagram renderer exports, fetching + evaluating the bundle at most
  * once per page.
@@ -75,6 +90,7 @@ export function loadDiagramRenderer(fetchCode: () => Promise<string>): Promise<D
       if (name === 'node:path') return pathStub
       if (name === 'node:process') return processStub
       if (name === 'node:url') return urlStub
+      if (name === 'util') return utilStub
       throw new Error(`diagram renderer bundle requires unexpected module ${name}`)
     }
     const result = run(moduleBox, moduleBox.exports, requireShim)

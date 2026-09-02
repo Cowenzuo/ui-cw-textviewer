@@ -423,19 +423,25 @@ function TextStream(props: {
       source={docContent}
       dark={dark}
       fetchCode={rendererDiagramBundle}
-      labels={{ loading: t('viewer.loading'), error: t('viewer.diagramError') }}
-      loading={null}
-      // Engine unavailable → show the highlighted source instead (or the
-      // plain surface when even the renderer bundle is down): content lives.
-      fallback={rendererReady && lang !== undefined
-        ? (
-          <div className={css.chunks}>
-            {chunks.map((chunk, index) => (
-              <HighlightedChunk key={index} content={chunk} lang={lang} dark={dark} fallback={renderer} />
-            ))}
-          </div>
-        )
-        : <pre ref={plainRef} className={css.plain} />}
+      labels={{ loading: t('viewer.diagramLoading'), error: t('viewer.diagramError') }}
+      loading={t('viewer.diagramLoading')}
+      // Engine unavailable → explain it, then show the highlighted source
+      // (or the plain surface when even the renderer bundle is down):
+      // content lives, and the user knows WHY the diagram is missing.
+      fallback={(
+        <>
+          <div className={css.moreHint}>{t('viewer.diagramError')}</div>
+          {rendererReady && lang !== undefined
+            ? (
+              <div className={css.chunks}>
+                {chunks.map((chunk, index) => (
+                  <HighlightedChunk key={index} content={chunk} lang={lang} dark={dark} fallback={renderer} />
+                ))}
+              </div>
+            )
+            : <pre ref={plainRef} className={css.plain} />}
+        </>
+      )}
     />
   ))()
 
