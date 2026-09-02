@@ -87,10 +87,32 @@ export function HighlightedCode(props: { content: string; lang: string; dark: bo
 }
 
 /** GFM markdown view (tables, strikethrough, autolinks, task lists…). */
-export function MarkdownView(props: { content: string }): React.JSX.Element {
+export function MarkdownView(props: {
+  content: string
+  onLinkClick?: (href: string, event: React.MouseEvent<HTMLAnchorElement>) => void
+}): React.JSX.Element {
+  const { content, onLinkClick } = props
   return (
     <div className={css.md}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{props.content}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: (anchorProps) => (
+            <a
+              {...anchorProps}
+              // Belt and braces: even without the interceptor, never
+              // navigate the app away in the same tab.
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={onLinkClick === undefined ? undefined : (event) => {
+                onLinkClick(String(anchorProps.href ?? ''), event)
+              }}
+            />
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   )
 }

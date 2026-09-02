@@ -11,5 +11,14 @@ export interface RendererExports {
   /** Shiki output for one code chunk (keeps previous HTML while re-highlighting). */
   HighlightedCode(props: { content: string; lang: string; dark: boolean }): React.JSX.Element
   /** GFM markdown view. */
-  MarkdownView(props: { content: string }): React.JSX.Element
+  MarkdownView(props: {
+    content: string
+    /**
+     * Link-click interceptor: the MAIN bundle decides what a link means
+     * (web → new tab, local file → open in the viewer) instead of letting
+     * the browser navigate the app away. Called with the raw href and the
+     * click event; a handler that does nothing lets the default happen.
+     */
+    onLinkClick?(href: string, event: React.MouseEvent<HTMLAnchorElement>): void
+  }): React.JSX.Element
 }

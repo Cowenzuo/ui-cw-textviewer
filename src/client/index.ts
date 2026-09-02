@@ -80,6 +80,10 @@ export function apply(ctx: Context): void {
         openListeners.add(listener)
         return () => { openListeners.delete(listener) }
       },
+      // Markdown links to LOCAL files re-enter the same open-file protocol
+      // the fileexplorer broadcasts (the dock's own subscription picks it up
+      // and switches the viewer — no navigation ever leaves the app).
+      openFile: (file) => { ctx.emit(FILE_OPEN_EVENT, file) },
     }),
   }, TextviewerDock))
 }

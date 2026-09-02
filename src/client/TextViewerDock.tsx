@@ -30,6 +30,8 @@ export interface TextviewerInjected {
   rendererBundle(): Promise<string>
   /** Subscribe to fileexplorer's open-file events; returns an unsubscribe. */
   subscribeOpen(listener: (file: TextviewerOpenEvent) => void): () => void
+  /** Open a file directly (markdown links re-enter the open-file protocol). */
+  openFile(file: TextviewerOpenEvent): void
 }
 
 /** Expanded width drag bounds. */
@@ -94,7 +96,7 @@ const PUSH_CSS = [
 export function TextviewerDock(
   props: PropsRuntime<'shell.overlay'> & InjectFace<TextviewerInjected> & PropsLocale<typeof NS>,
 ): React.JSX.Element {
-  const { readText, rendererBundle, subscribeOpen, t } = props
+  const { readText, rendererBundle, subscribeOpen, openFile, t } = props
   // The file currently open in the viewer, with the workspace root that came
   // with the event (the read-text scope — the viewer never lists anything).
   const [opened, setOpened] = useState<{ root: string; name: string; path: string } | null>(null)
@@ -298,6 +300,7 @@ export function TextviewerDock(
                 t={t}
                 readText={readText}
                 rendererBundle={rendererBundle}
+                openFile={openFile}
               />
             )}
           </div>

@@ -44,7 +44,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { NS } from './locales.ts'
-import type { TextviewerEncoding, TextviewerSnapshot } from '../contract.ts'
+import type { TextviewerEncoding, TextviewerOpenEvent, TextviewerSnapshot } from '../contract.ts'
 import { loadRenderer } from './renderer-loader.ts'
 import { highlightInWorker, warmUpWorker } from './renderer-worker.ts'
 import type { RendererExports } from './renderer-contract.ts'
@@ -122,6 +122,38 @@ function formatSize(size: number): string {
   return `${value.toFixed(1)} ${units[unit]}`
 }
 
+/** Client-side path helpers (no node:path in the browser bundle). */
+function dirnamePath(path: string): string {
+  const idx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  return idx <= 0 ? path : path.slice(0, idx)
+}
+
+function basenamePath(path: string): string {
+  const idx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  return idx < 0 ? path : path.slice(idx + 1)
+}
+
+/**
+ * Resolve a markdown link's local file path: relative links join against
+ * the viewed file's directory, `..` collapses (never above the drive root),
+ * and drive-letter/UNC forms stay absolute. Windows separators normalize to
+ * `/` so the server-side workspace lock compares cleanly.
+ */
+export function resolveLocalLink(href: string, baseDir: string): string {
+  const clean = (p: string): string => p.replace(/\\/g, '/')
+  const target = /^[A-Za-z]:\//.test(clean(href)) || clean(href).startsWith('//')
+    ? clean(href)
+    : `${clean(baseDir).replace(/\/+$/, '')}/${clean(href)}`
+  const out: string[] = []
+  for (const part of target.split('/')) {
+    if (part === '' || part === '.') continue
+    if (part === '..') { if (out.length > 1) out.pop(); continue }
+    out.push(part)
+  }
+  const joined = out.join('/')
+  return target.startsWith('//') ? `//${joined}` : joined
+}
+
 /**
  * One code chunk, highlighted in the WORKER — zero main-thread jank (the
  * first use of a language compiles its grammar synchronously, and a 200KB
@@ -167,6 +199,8 @@ export function TextViewer(props: {
   readText: (root: string, path: string, offset: number, limit: number | undefined, encoding: TextviewerEncoding | undefined, signal: AbortSignal) => Promise<RpcResult<TextviewerSnapshot>>
   /** RPC-backed fetch of the lazy renderer bundle source. */
   rendererBundle: () => Promise<string>
+  /** Open a file through the open-file protocol (markdown local links). */
+  openFile(file: TextviewerOpenEvent): void
 }): React.JSX.Element {
   const { file, t } = props
   if (file === null) return <div className={css.state}>{t('viewer.empty')}</div>
@@ -192,8 +226,10 @@ function TextStream(props: {
   readText: (root: string, path: string, offset: number, limit: number | undefined, encoding: TextviewerEncoding | undefined, signal: AbortSignal) => Promise<RpcResult<TextviewerSnapshot>>
   /** RPC-backed fetch of the lazy renderer bundle source. */
   rendererBundle: () => Promise<string>
+  /** Open a file through the open-file protocol (markdown local links). */
+  openFile(file: TextviewerOpenEvent): void
 }): React.JSX.Element {
-  const { root, file, dark, t, readText, rendererBundle } = props
+  const { root, file, dark, t, readText, rendererBundle, openFile } = props
   // Chunked text: each appended chunk is its own entry so plain/code render
   // append-only (the markdown view joins them for full-document parsing).
   const [chunks, setChunks] = useState<string[]>([])
@@ -344,6 +380,22 @@ function TextStream(props: {
   const rendererReady = renderer !== null
   const rendererDown = rendererFailed && (kind === 'code' || kind === 'markdown')
 
+  /**
+   * Markdown link interceptor: web links open in a NEW tab (the app never
+   * navigates away — the blank-page complaint); local file links resolve
+   * against the viewed file's directory and re-enter the open-file protocol
+   * (the server-side workspace lock still applies).
+   */
+  const handleLinkClick = (href: string, event: React.MouseEvent<HTMLAnchorElement>): void => {
+    event.preventDefault()
+    if (/^(https?:|mailto:|tel:)/i.test(href)) {
+      window.open(href, '_blank', 'noopener,noreferrer')
+      return
+    }
+    const resolved = resolveLocalLink(href, dirnamePath(file.path))
+    openFile({ name: basenamePath(resolved), path: resolved, root })
+  }
+
   return (
     <>
       {error !== null ? (
@@ -355,7 +407,7 @@ function TextStream(props: {
       ) : (
         <div ref={scrollRef} className={css.scroll} onScroll={onScroll}>
           {kind === 'markdown' && rendererReady && !rawMode ? (
-            <renderer.MarkdownView content={mdContent} />
+            <renderer.MarkdownView content={mdContent} onLinkClick={handleLinkClick} />
           ) : kind === 'code' && lang !== undefined && rendererReady ? (
             <div className={css.chunks}>
               {chunks.map((chunk, index) => (
