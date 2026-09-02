@@ -95,11 +95,13 @@
   white-space: pre;
 }
 
-/* Shiki code block: line numbers via a CSS counter (shiki emits one
-   span.line per line; token colors are the active theme's inline styles).
-   The pre's own inline background is neutralized — the constant surface
-   above owns the paint, so a short file never shows a partial block. */
-.code {
+/* Shiki code blocks: ONE highlighted block per chunk (append-only — each
+   chunk highlights only itself). The line-number counter lives on the
+   shared container so numbers stay CONTINUOUS across chunk boundaries
+   (per-chunk .code wrappers must not reset it). The pre's own inline
+   background is neutralized — the constant surface owns the paint, so a
+   short file never shows a partial block. */
+.chunks {
   counter-reset: dsh-code-line;
 }
 

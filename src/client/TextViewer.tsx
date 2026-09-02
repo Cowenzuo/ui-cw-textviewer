@@ -16,13 +16,31 @@
  * failure degrades code/markdown files to plain text with an error line.
  *
  * The stream: read-text serves byte chunks (host-aligned, encoding-detected
- * BOM/UTF-8/GBK); the region appends chunks as the user scrolls to the
- * bottom (pinned there it chains automatically), capped at a preview bound.
+ * BOM/UTF-8/GBK); the region appends chunks as the user scrolls toward the
+ * end of the loaded content, capped at a preview bound.
+ *
+ * BIG-FILE STRATEGY (append-only, no teleporting):
+ * - The scroll position is NEVER force-pinned for a mere near-bottom scroll:
+ *   appending below the viewport keeps the visible lines in place, and the
+ *   chain stops on its own once the new bottom is out of reach — scrolling
+ *   resumes it. Only a user PINNED at the exact bottom edge rides a
+ *   continuous stream (log-viewer style) and can leave it any time by
+ *   scrolling up.
+ * - Plain text appends through an imperative text node (one pre, its old
+ *   text never rewritten — React cannot touch what it did not render).
+ * - Code renders ONE highlighted block PER CHUNK: each chunk highlights only
+ *   itself (linear total cost instead of re-highlighting everything per
+ *   append), the CSS line counter lives on the shared container so numbers
+ *   stay continuous across chunks; a chunk boundary may split a multi-line
+ *   construct (documented limitation).
+ * - Markdown re-parses the whole accumulated text per append (GFM structure
+ *   needs the full document; md files are rarely huge).
+ *
  * Binary files (NUL sniff on the first chunk) get a message instead of
  * garbage. The active theme is projected onto Shiki's light/dark themes by
  * re-rendering on `body[data-ds-dark-theme]` changes.
  */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { NS } from './locales.ts'
@@ -35,6 +53,9 @@ import css from './TextViewer.module.css'
 const MAX_VIEW_BYTES = 2 * 1024 * 1024
 /** Distance from the bottom that counts as "at the end" (auto-load region). */
 const NEAR_BOTTOM_PX = 120
+/** Distance from the very bottom that counts as "pinned" (streaming only for
+ * users glued to the edge — a mere near-bottom scroll must NOT ride along). */
+const PINNED_PX = 2
 
 /** Extension → Shiki language id (the v1 curated set; more formats extend here). */
 const EXT_LANGS: Record<string, string> = {
@@ -112,7 +133,9 @@ export function TextViewer(props: {
   rendererBundle: () => Promise<string>
 }): React.JSX.Element {
   const { root, file, dark, t, readText, rendererBundle } = props
-  const [content, setContent] = useState('')
+  // Chunked text: each appended chunk is its own entry so plain/code render
+  // append-only (the markdown view joins them for full-document parsing).
+  const [chunks, setChunks] = useState<string[]>([])
   const [meta, setMeta] = useState<{ size: number; encoding: string; truncated: boolean; binary: boolean } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -122,15 +145,24 @@ export function TextViewer(props: {
   // Markdown view mode: false = rendered (default), true = raw source text.
   const [rawMode, setRawMode] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  // The plain surface's pre: appends happen imperatively so the browser
+  // never rewrites already-inserted text (see the append-only strategy).
+  const plainRef = useRef<HTMLPreElement>(null)
+  const lastAppendedRef = useRef(0)
   // Bytes appended so far (the next chunk's offset); a ref keeps it out of
   // render cycles and immune to stale closures in the scroll handler.
   const bytesRef = useRef(0)
   const loadingRef = useRef(false)
-  // Whether the viewport sits at the bottom: pinned loads chain there.
+  // Whether the viewport sits near the bottom (auto-load region) and
+  // whether it is PINNED at the very bottom edge (continuous streaming).
   const atBottomRef = useRef(false)
+  const pinnedRef = useRef(false)
   // The file the current stream belongs to: in-flight chunks of a previous
   // file must not append into the next file's surface (switch race).
   const pathRef = useRef<string | null>(null)
+
+  /** Full document text for the markdown renderer (rarely huge). */
+  const mdContent = useMemo(() => chunks.join(''), [chunks])
 
   // Load the heavy renderer bundle once, on first mount.
   useEffect(() => {
@@ -150,7 +182,7 @@ export function TextViewer(props: {
       binary: snapshot.binary,
     })
     // Binary files render nothing — the message replaces the surface.
-    setContent(snapshot.binary ? '' : snapshot.content)
+    setChunks(snapshot.binary ? [] : prev => [...prev, snapshot.content])
   }
 
   /** Fetch and append the next chunk (single-flight, current-file-guarded). */
@@ -175,7 +207,7 @@ export function TextViewer(props: {
   // sidebar measurements, theme flips — must never fabricate a "new file"
   // and reset the surface (the drag-flicker regression was exactly that).
   useEffect(() => {
-    setContent('')
+    setChunks([])
     setMeta(null)
     setError(null)
     setTooLarge(false)
@@ -183,6 +215,7 @@ export function TextViewer(props: {
     bytesRef.current = 0
     loadingRef.current = false
     atBottomRef.current = false
+    pinnedRef.current = false
     pathRef.current = file === null ? null : file.path
     if (file === null) return
     let cancelled = false
@@ -205,24 +238,51 @@ export function TextViewer(props: {
   const onScroll = (): void => {
     const el = scrollRef.current
     if (el === null) return
-    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+    pinnedRef.current = distance < PINNED_PX
+    atBottomRef.current = distance < NEAR_BOTTOM_PX
     if (atBottomRef.current) loadMore()
   }
 
-  // After every append: if the user sits at the bottom, re-pin and keep
-  // streaming (the scroll handler alone would stall when content is shorter
-  // than the viewport, since no new scroll event fires — treat a
-  // non-scrollable viewport as "at the bottom" so short content chains too).
+  // After every append: NEVER teleport a mere near-bottom scroll — appending
+  // below the viewport keeps the visible lines where they are, and the chain
+  // stops on its own once the new bottom is out of reach (scrolling resumes
+  // it). Only a user PINNED at the exact bottom edge rides a continuous
+  // stream (re-pinned to the new bottom) and can leave it by scrolling up.
+  // Short content (smaller than the viewport) counts as pinned: it chains
+  // until the file is complete — the scroll handler alone would stall there.
   useLayoutEffect(() => {
     const el = scrollRef.current
-    if (el !== null && el.scrollHeight <= el.clientHeight + 1) {
+    if (el === null) return
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distance < PINNED_PX) {
+      pinnedRef.current = true
       atBottomRef.current = true
+      el.scrollTop = el.scrollHeight
+      loadMore()
+      return
     }
-    if (!atBottomRef.current) return
-    if (el !== null) el.scrollTop = el.scrollHeight
-    loadMore()
+    pinnedRef.current = false
+    atBottomRef.current = distance < NEAR_BOTTOM_PX
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadMore reads live refs.
-  }, [content])
+  }, [chunks])
+
+  // Append-only plain surface: insert each new chunk's text node into the
+  // pre; the browser keeps the old text untouched (React never rewrites it).
+  // A chunk-count reset (file switch) clears the pre first.
+  useLayoutEffect(() => {
+    const el = plainRef.current
+    if (el === null) return
+    let from = lastAppendedRef.current
+    if (from > chunks.length) {
+      el.textContent = ''
+      from = 0
+    }
+    for (let i = from; i < chunks.length; i += 1) {
+      el.append(document.createTextNode(chunks[i]!))
+    }
+    lastAppendedRef.current = chunks.length
+  }, [chunks])
 
   const kind = file === null ? 'plain' : rendererFor(file.name)
   const lang = file === null ? undefined : langFor(file.name)
@@ -245,11 +305,15 @@ export function TextViewer(props: {
       ) : (
         <div ref={scrollRef} className={css.scroll} onScroll={onScroll}>
           {kind === 'markdown' && rendererReady && !rawMode ? (
-            <renderer.MarkdownView content={content} />
+            <renderer.MarkdownView content={mdContent} />
           ) : kind === 'code' && lang !== undefined && rendererReady ? (
-            <renderer.HighlightedCode content={content} lang={lang} dark={dark} />
+            <div className={css.chunks}>
+              {chunks.map((chunk, index) => (
+                <renderer.HighlightedCode key={index} content={chunk} lang={lang} dark={dark} />
+              ))}
+            </div>
           ) : (
-            <pre className={css.plain}>{content}</pre>
+            <pre ref={plainRef} className={css.plain} />
           )}
           {rendererDown && <div className={css.moreHint}>{t('error.load')}</div>}
           {meta.truncated && !tooLarge && <div className={css.moreHint}>{t('viewer.more')}</div>}
