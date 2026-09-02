@@ -34,13 +34,12 @@
   line-height: 18px;
 }
 
-/* Bottom status bar: the file's format meta (encoding · size · partial),
-   right-aligned; markdown files carry a render/source toggle before it. */
+/* Bottom status bar: the markdown render/source toggle on the LEFT, the
+   file's format meta (encoding · size · partial) pushed to the right. */
 .statusBar {
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 8px;
   height: 24px;
   padding: 0 10px;
@@ -75,6 +74,7 @@
 
 .statusText {
   flex: none;
+  margin-left: auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
