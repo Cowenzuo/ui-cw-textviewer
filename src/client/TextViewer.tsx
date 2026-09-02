@@ -398,6 +398,9 @@ function TextStream(props: {
   // bundle + RPC), so its failure hint only appears in source mode.
   const rendererReady = renderer !== null
   const rendererDown = rendererFailed && (kind === 'code' || kind === 'markdown' || (kind === 'mermaid' && rawMode))
+  // .mmd diagram mode: the rendered pane (centered on the surface) instead
+  // of the streaming surfaces.
+  const showDiagram = kind === 'mermaid' && !rawMode
 
   // The ```mermaid fence renderer handed to MarkdownView: STABLE identity
   // (memoized) so markdown re-renders (chunk appends, theme flips) never
@@ -486,7 +489,13 @@ function TextStream(props: {
       ) : meta.binary ? (
         <div className={css.state}>{t('viewer.binary')}</div>
       ) : (
-        <div ref={scrollRef} className={css.scroll} onScroll={onScroll}>
+        <div
+          ref={scrollRef}
+          // Diagram mode centers its content (both axes when it fits); every
+          // other surface keeps the plain streaming layout.
+          className={showDiagram ? `${css.scroll} ${css.centerDiagram}` : css.scroll}
+          onScroll={onScroll}
+        >
           {kind === 'markdown' && rendererReady && !rawMode ? (
             <renderer.MarkdownView
               content={docContent}
@@ -494,7 +503,7 @@ function TextStream(props: {
               dark={dark}
               mermaidFence={mermaidFence}
             />
-          ) : kind === 'mermaid' && !rawMode ? (
+          ) : showDiagram ? (
             // Diagram mode: the lazy mermaid pane (see diagramPane above).
             diagramPane
           ) : kind === 'mermaid' && rawMode && lang !== undefined && rendererReady ? (

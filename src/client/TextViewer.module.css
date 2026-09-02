@@ -255,9 +255,30 @@
   padding: 4px 0;
 }
 
+/* NO centering here on purpose: ```mermaid fences inside markdown keep the
+   document's flow layout (left-aligned like the surrounding text). Only the
+   standalone .mmd pane's wrapper (.centerDiagram) centers — see below. */
 .diagram svg {
   max-width: 100%;
   height: auto;
+}
+
+/* .mmd pane: center the diagram in BOTH axes while it fits the viewport.
+   Flex + auto margins is the overflow-safe pattern — when the diagram
+   outgrows the pane the margins collapse to zero and the surface scrolls
+   from the top (a plain align-items center would clip the top of tall
+   diagrams unreachably). The inner flex centers the SVG horizontally within
+   the full-width wrapper. */
+.centerDiagram {
+  display: flex;
+  flex-direction: column;
+}
+
+.centerDiagram > .diagram {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin: auto;
 }
 
 /* Engine-loading slot (keeps the layout stable while renderer-diagram.js
