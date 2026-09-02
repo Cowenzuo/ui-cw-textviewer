@@ -7,6 +7,12 @@
   overflow: auto;
   padding: 8px 10px;
   box-sizing: border-box;
+  /* The display surface lives on the CONTAINER, not the content: a short
+     file must not leave only a content-sized block painted — the region
+     stays fully covered (background-attachment: scroll pins the paint to
+     the container box, so the visible area is constant at every scroll
+     position and every content length). */
+  background: var(--dsw-alias-bg-layer-1);
   /* Scrollbars follow the theme like the official sidebar's. */
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
@@ -47,9 +53,15 @@
 }
 
 /* Shiki code block: line numbers via a CSS counter (shiki emits one
-   span.line per line; token colors are the active theme's inline styles). */
+   span.line per line; token colors are the active theme's inline styles).
+   The pre's own inline background is neutralized — the constant surface
+   above owns the paint, so a short file never shows a partial block. */
 .code {
   counter-reset: dsh-code-line;
+}
+
+.code :global(pre.shiki) {
+  background: transparent !important;
 }
 
 .code :global(.line)::before {
