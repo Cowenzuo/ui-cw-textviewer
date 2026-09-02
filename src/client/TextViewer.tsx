@@ -46,6 +46,7 @@ import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { NS } from './locales.ts'
 import type { TextviewerEncoding, TextviewerSnapshot } from '../contract.ts'
 import { loadRenderer } from './renderer-loader.ts'
+import { highlightInWorker, warmUpWorker } from './renderer-worker.ts'
 import type { RendererExports } from './renderer-contract.ts'
 import css from './TextViewer.module.css'
 
@@ -123,6 +124,43 @@ function formatSize(size: number): string {
   return `${value.toFixed(1)} ${units[unit]}`
 }
 
+/**
+ * One code chunk, highlighted in the WORKER — zero main-thread jank (the
+ * first use of a language compiles its grammar synchronously, and a 200KB
+ * chunk tokenizes in ~1.7s; both would freeze the UI). The plain surface
+ * shows until the HTML arrives; on worker failure the main-thread
+ * highlighter (the lazy bundle) takes over.
+ */
+function HighlightedChunk(props: {
+  content: string
+  lang: string
+  dark: boolean
+  fallback: RendererExports | null
+}): React.JSX.Element {
+  const { content, lang, dark, fallback } = props
+  const [html, setHtml] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    highlightInWorker(content, lang, dark)
+      .then(out => { if (!cancelled) setHtml(out) })
+      .catch(() => {
+        if (cancelled || fallback === null) return
+        void fallback.getHighlighter().then(highlighter => {
+          if (cancelled) return
+          try {
+            setHtml(highlighter.codeToHtml(content, { lang, theme: dark ? 'github-dark' : 'github-light' }))
+          } catch {
+            // keep the plain surface
+          }
+        })
+      })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content, lang, dark, fallback])
+  if (html === null) return <pre className={css.plain}>{content}</pre>
+  return <div className={css.code} dangerouslySetInnerHTML={{ __html: html }} />
+}
+
 export function TextViewer(props: {
   root: string
   file: { name: string; path: string } | null
@@ -174,7 +212,13 @@ export function TextViewer(props: {
     void loadRenderer(rendererBundle)
       .then(exports => { if (!cancelled) setRenderer(exports) })
       .catch(() => { if (!cancelled) setRendererFailed(true) })
+    // Warm the worker's highlighter + the common languages in the
+    // background (off the main thread) so the first code open feels
+    // instant; the theme only affects token colors, so the mount theme is
+    // fine for the warm-up.
+    warmUpWorker(dark)
     return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rendererBundle])
 
   const append = (snapshot: TextviewerSnapshot): void => {
@@ -315,7 +359,7 @@ export function TextViewer(props: {
           ) : kind === 'code' && lang !== undefined && rendererReady ? (
             <div className={css.chunks}>
               {chunks.map((chunk, index) => (
-                <renderer.HighlightedCode key={index} content={chunk} lang={lang} dark={dark} />
+                <HighlightedChunk key={index} content={chunk} lang={lang} dark={dark} fallback={renderer} />
               ))}
             </div>
           ) : (

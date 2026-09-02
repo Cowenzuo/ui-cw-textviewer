@@ -63,7 +63,9 @@
   `lib/renderer.js`，host 经 `renderer` 端点提供（读取插件包内同目录文件），
   客户端首次打开文件才拉取并以 `new Function('module','exports','require', …)`
   求值（require 仅放行 react 两个模块，其余走主包 require 表）；启动主包仅
-  ≈32KB。渲染包加载失败自动降级为纯文本，不白屏
+  ≈46KB。渲染包加载失败自动降级为纯文本，不白屏
+- **高亮在 Web Worker 中执行**（主线程零阻塞）：语言首次编译与大数据块分词
+  全部离线；失败自动降级主线程高亮；挂载后后台预热常用语言，首开即现
 - **数据跟随**：`useSessions` 全局 hook → 当前会话 cwd = 锁定工作区根
 
 ### 目录结构
