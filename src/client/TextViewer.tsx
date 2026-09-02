@@ -168,6 +168,31 @@ export function TextViewer(props: {
   /** RPC-backed fetch of the lazy renderer bundle source. */
   rendererBundle: () => Promise<string>
 }): React.JSX.Element {
+  const { file, t } = props
+  if (file === null) return <div className={css.state}>{t('viewer.empty')}</div>
+  // KEYED BY PATH: switching files unmounts the old stream wholesale (its
+  // accumulated chunks die with it) and mounts a fresh one — the stale
+  // "previous file's content rendered into the new file's branch" instant
+  // can never happen. That instant parsed 4.3MB of a previous file as
+  // markdown (the post-huge → README.md switch freeze), while code files
+  // only re-posted old chunks to the worker (hence no visible freeze).
+  return <TextStream key={file.path} {...props} file={file} />
+}
+
+/**
+ * One file's text stream: chunk state, streaming logic, and the renderer
+ * branches. Keyed by the file path in the parent — every file gets a fresh
+ * mount, so none of this state ever leaks across files.
+ */
+function TextStream(props: {
+  root: string
+  file: { name: string; path: string }
+  dark: boolean
+  t: TranslateNS<typeof NS>
+  readText: (root: string, path: string, offset: number, limit: number | undefined, encoding: TextviewerEncoding | undefined, signal: AbortSignal) => Promise<RpcResult<TextviewerSnapshot>>
+  /** RPC-backed fetch of the lazy renderer bundle source. */
+  rendererBundle: () => Promise<string>
+}): React.JSX.Element {
   const { root, file, dark, t, readText, rendererBundle } = props
   // Chunked text: each appended chunk is its own entry so plain/code render
   // append-only (the markdown view joins them for full-document parsing).
@@ -192,9 +217,6 @@ export function TextViewer(props: {
   // whether it is PINNED at the very bottom edge (continuous streaming).
   const atBottomRef = useRef(false)
   const pinnedRef = useRef(false)
-  // The file the current stream belongs to: in-flight chunks of a previous
-  // file must not append into the next file's surface (switch race).
-  const pathRef = useRef<string | null>(null)
   // The first chunk's detected encoding, carried forward to later chunks so
   // they decode stably (a GBK chunk that happens to be valid UTF-8 must not
   // flip back mid-file).
@@ -231,9 +253,9 @@ export function TextViewer(props: {
     setChunks(snapshot.binary ? [] : prev => [...prev, snapshot.content])
   }
 
-  /** Fetch and append the next chunk (single-flight, current-file-guarded). */
+  /** Fetch and append the next chunk (single-flight). */
   const loadMore = (): void => {
-    if (file === null || meta === null || meta.binary || loadingRef.current) return
+    if (meta === null || meta.binary || loadingRef.current) return
     if (!meta.truncated) return
     const target = file.path
     loadingRef.current = true
@@ -241,44 +263,29 @@ export function TextViewer(props: {
     void readText(root, target, bytesRef.current, undefined, encodingRef.current, new AbortController().signal).then(result => {
       loadingRef.current = false
       setLoading(false)
-      if (pathRef.current !== target) return // the user switched files meanwhile
       if (!result.ok) { setError(result.error.message); return }
       append(result.value)
     })
   }
 
-  // Reset and load the first chunk when the FILE CHANGES. Keyed on the
-  // PATH (not the file object's identity): parent re-renders — width drags,
-  // sidebar measurements, theme flips — must never fabricate a "new file"
-  // and reset the surface (the drag-flicker regression was exactly that).
+  // Load the first chunk on mount (the parent keys this stream by the file
+  // path, so mount == file open; in-flight responses of a REMOUNTED stream
+  // are cancelled by the cleanup and cannot touch the new instance).
   useEffect(() => {
-    setChunks([])
-    setMeta(null)
-    setError(null)
-    setRawMode(false)
-    bytesRef.current = 0
-    loadingRef.current = false
-    atBottomRef.current = false
-    pinnedRef.current = false
-    encodingRef.current = undefined
-    pathRef.current = file === null ? null : file.path
-    if (file === null) return
     let cancelled = false
     setLoading(true)
     loadingRef.current = true
-    const target = file.path
-    void readText(root, target, 0, undefined, undefined, new AbortController().signal).then(result => {
+    void readText(root, file.path, 0, undefined, undefined, new AbortController().signal).then(result => {
       loadingRef.current = false
       if (cancelled) return
-      if (pathRef.current !== target) return // switched again mid-flight
       setLoading(false)
       if (!result.ok) { setError(result.error.message); return }
       append(result.value)
     })
     return () => { cancelled = true }
-    // append reads only refs; the reload condition is the path itself.
+    // append reads only refs; the mount condition is the path itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [root, file === null ? null : file.path, readText])
+  }, [root, file.path, readText])
 
   const onScroll = (): void => {
     const el = scrollRef.current
@@ -329,8 +336,8 @@ export function TextViewer(props: {
     lastAppendedRef.current = chunks.length
   }, [chunks])
 
-  const kind = file === null ? 'plain' : rendererFor(file.name)
-  const lang = file === null ? undefined : langFor(file.name)
+  const kind = rendererFor(file.name)
+  const lang = langFor(file.name)
 
   // Code/markdown need the renderer bundle; until it loads (or on failure)
   // they degrade to the plain surface — never a blank panel.
@@ -339,9 +346,7 @@ export function TextViewer(props: {
 
   return (
     <>
-      {file === null ? (
-        <div className={css.state}>{t('viewer.empty')}</div>
-      ) : error !== null ? (
+      {error !== null ? (
         <div className={css.state}>{t('error.load')}：{error}</div>
       ) : meta === null ? (
         <div className={css.state}>{loading ? t('viewer.loading') : ''}</div>
