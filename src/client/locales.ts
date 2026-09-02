@@ -16,6 +16,8 @@ export const zh = {
   'viewer.more': '已加载部分内容，滚动到底部继续加载',
   'viewer.source': '源码',
   'viewer.render': '渲染',
+  'history.label': '打开记录',
+  'history.empty': '暂无打开记录',
   'error.load': '无法读取该文件',
 } as const
 
@@ -30,6 +32,8 @@ export const en: Record<keyof typeof zh, string> = {
   'viewer.more': 'Partial content loaded — scroll to the bottom to load more',
   'viewer.source': 'Source',
   'viewer.render': 'Render',
+  'history.label': 'History',
+  'history.empty': 'No history yet',
   'error.load': 'Unable to read this file',
 }
 

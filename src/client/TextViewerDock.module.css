@@ -97,6 +97,75 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+/* Open-history dropdown: floats under the title bar, right-aligned. */
+.historyPanel {
+  position: absolute;
+  top: 40px;
+  right: 6px;
+  z-index: 2;
+  width: 260px;
+  max-height: 60vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+}
+
+.historyItem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  outline: none;
+}
+
+.historyItem:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.historyItem:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: -1px;
+}
+
+.historyName {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.historyPath {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.historyEmpty {
+  padding: 8px 10px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 /* Preview region: flex-remaining column; TextViewer owns its header+scroll. */
 .section {
   display: flex;

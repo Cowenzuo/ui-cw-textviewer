@@ -39,10 +39,19 @@ export const inject = ['slots', 'locale', 'connection']
  */
 export const FILE_OPEN_EVENT = 'ui-cw/fileexplorer/file-open'
 
+/**
+ * Reverse-direction sync event: the viewer asks the fileexplorer to SELECT
+ * (highlight) a row — used when a history entry is opened. The fileexplorer
+ * only honors it when the file is inside ITS current workspace.
+ */
+export const SELECT_FILE_EVENT = 'ui-cw/textviewer/select-file'
+
 declare module '@deepseek-ai/cordis' {
   interface Events {
     /** Broadcast by ui-cw-fileexplorer when a file row is clicked. */
     [FILE_OPEN_EVENT]: (file: import('../contract.ts').TextviewerOpenEvent) => void
+    /** Broadcast by ui-cw-textviewer to sync the explorer's selection. */
+    [SELECT_FILE_EVENT]: (file: { name: string; path: string }) => void
   }
 }
 
@@ -84,6 +93,9 @@ export function apply(ctx: Context): void {
       // the fileexplorer broadcasts (the dock's own subscription picks it up
       // and switches the viewer — no navigation ever leaves the app).
       openFile: (file) => { ctx.emit(FILE_OPEN_EVENT, file) },
+      // Selection sync for history opens: the fileexplorer honors it only
+      // when the file lies inside its own workspace.
+      selectFile: (file) => { ctx.emit(SELECT_FILE_EVENT, file) },
     }),
   }, TextviewerDock))
 }

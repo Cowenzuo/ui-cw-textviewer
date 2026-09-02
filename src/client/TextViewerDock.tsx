@@ -14,10 +14,14 @@
  * vertically centered expand arrow. All data arrives through props.
  */
 import { useEffect, useRef, useState } from 'react'
-import { IconChevronRightOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  IconChevronRightOutline14,
+  IconClockOutline16,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS } from './locales.ts'
 import type { TextviewerOpenEvent } from '../contract.ts'
+import { loadHistory, pushHistory, saveHistory, type HistoryEntry } from './history.ts'
 import { TextViewer } from './TextViewer.tsx'
 import css from './TextViewerDock.module.css'
 
@@ -32,6 +36,8 @@ export interface TextviewerInjected {
   subscribeOpen(listener: (file: TextviewerOpenEvent) => void): () => void
   /** Open a file directly (markdown links re-enter the open-file protocol). */
   openFile(file: TextviewerOpenEvent): void
+  /** Ask the fileexplorer to select a row (history sync; honored in-workspace only). */
+  selectFile(file: { name: string; path: string }): void
 }
 
 /** Expanded width drag bounds. */
@@ -63,6 +69,12 @@ const TERMINAL_HEIGHT_VAR = '--dsh-terminal-height'
  * explorer), so an accidental title-row click would strand the user; the
  * collapse button is the only hide affordance.
  */
+
+/** Directory of a path (client-side; both separators). */
+function dirnameOf(path: string): string {
+  const idx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  return idx <= 0 ? path : path.slice(0, idx)
+}
 
 /** Current dark/light palette: ui-layout projects it onto body. */
 function useDark(): boolean {
@@ -96,7 +108,7 @@ const PUSH_CSS = [
 export function TextviewerDock(
   props: PropsRuntime<'shell.overlay'> & InjectFace<TextviewerInjected> & PropsLocale<typeof NS>,
 ): React.JSX.Element {
-  const { readText, rendererBundle, subscribeOpen, openFile, t } = props
+  const { readText, rendererBundle, subscribeOpen, openFile, selectFile, t } = props
   // The file currently open in the viewer, with the workspace root that came
   // with the event (the read-text scope — the viewer never lists anything).
   const [opened, setOpened] = useState<{ root: string; name: string; path: string } | null>(null)
@@ -114,15 +126,25 @@ export function TextviewerDock(
   const [dragging, setDragging] = useState(false)
   const dragWidth = useRef<{ startX: number; startWidth: number; lastWidth: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  // Open history (persisted, capped at 10): every open funnels through the
+  // open handler below, which records it; the dropdown re-opens entries.
+  const [history, setHistory] = useState<HistoryEntry[]>(loadHistory)
+  const historyRef = useRef(history)
+  const [historyOpen, setHistoryOpen] = useState(false)
   // Latest open handler behind a stable subscription (inject-face identities
   // must not force re-subscribes on every render).
   const openHandlerRef = useRef<(file: TextviewerOpenEvent) => void>(() => {})
   // The last opened target: re-clicking the same file must not reload.
   const lastOpenRef = useRef<{ root: string; path: string } | null>(null)
   openHandlerRef.current = (file) => {
-    // ANY file click re-opens the hidden panel (the hide affordance is the
-    // button only — no rail, no title-row toggle to come back from).
+    // ANY file open re-opens the hidden panel (the hide affordance is the
+    // button only — no rail, no title-row toggle to come back from) and is
+    // recorded in the open history.
     setExpanded(true)
+    const next = pushHistory(historyRef.current, { name: file.name, path: file.path })
+    historyRef.current = next
+    setHistory(next)
+    saveHistory(next)
     if (lastOpenRef.current !== null
       && lastOpenRef.current.root === file.root && lastOpenRef.current.path === file.path) return
     lastOpenRef.current = { root: file.root, path: file.path }
@@ -269,9 +291,19 @@ export function TextviewerDock(
           <div className={css.titleRow}>
             {/* The opened file's name IS the title; the full path answers hover.
                 No whole-row click: hiding the viewer strands the user until
-                the next file click, so the button below is the only hide
-                affordance. */}
+                the next file click, so the buttons below are the only
+                affordances. */}
             <div className={css.title} title={opened?.path}>{opened === null ? t('view.title') : opened.name}</div>
+            <button
+              type="button"
+              className={css.toggle}
+              aria-expanded={historyOpen}
+              aria-label={t('history.label')}
+              title={t('history.label')}
+              onClick={() => { setHistoryOpen(current => !current) }}
+            >
+              <IconClockOutline16 size={14} />
+            </button>
             <button
               type="button"
               className={css.toggle}
@@ -283,6 +315,33 @@ export function TextviewerDock(
               <IconChevronRightOutline14 size={14} />
             </button>
           </div>
+          {/* Open-history dropdown: click an entry to re-open it (root follows
+              the file's own directory — history may span workspaces) and ask
+              the fileexplorer to sync its selection when in-workspace. */}
+          {historyOpen && (
+            <div className={css.historyPanel}>
+              {history.length === 0 ? (
+                <div className={css.historyEmpty}>{t('history.empty')}</div>
+              ) : (
+                history.map(entry => (
+                  <button
+                    key={entry.path}
+                    type="button"
+                    className={css.historyItem}
+                    title={entry.path}
+                    onClick={() => {
+                      setHistoryOpen(false)
+                      openFile({ name: entry.name, path: entry.path, root: dirnameOf(entry.path) })
+                      selectFile({ name: entry.name, path: entry.path })
+                    }}
+                  >
+                    <span className={css.historyName}>{entry.name}</span>
+                    <span className={css.historyPath}>{entry.path}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
           {/* Preview region: the whole surface below the title bar. */}
           <div className={css.section} style={{ flexGrow: 1, flexShrink: 1, flexBasis: '0%', minHeight: 0 }}>
             {opened === null ? (
