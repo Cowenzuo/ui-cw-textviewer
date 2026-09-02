@@ -31,10 +31,12 @@ export interface TextviewerInjected {
   subscribeOpen(listener: (file: TextviewerOpenEvent) => void): () => void
 }
 
-/** Default expanded width in px. */
-const DEFAULT_WIDTH = 380
 /** Expanded width drag bounds. */
 const MIN_WIDTH = 200
+/** Initial width share: the dock opens at 40% of the viewport (the user's
+ * preferred default), clamped to the drag floor; the dynamic ceiling effect
+ * tightens it further once the sidebar/fileexplorer measurements land. */
+const INITIAL_WIDTH_RATIO = 0.4
 /** The fileexplorer dock's minimum width (its MIN_WIDTH constant) — the
  * viewer's upper limit is computed from it, so the viewer may grow until the
  * sidebar and the fileexplorer dock both sit at their floors. */
@@ -103,7 +105,7 @@ export function TextviewerDock(
   // Default hidden: with no file opened yet there is nothing to show (the
   // first file click brings the panel up).
   const [expanded, setExpanded] = useState(false)
-  const [width, setWidth] = useState(DEFAULT_WIDTH)
+  const [width, setWidth] = useState(() => Math.max(MIN_WIDTH, Math.round(window.innerWidth * INITIAL_WIDTH_RATIO)))
   const [dragging, setDragging] = useState(false)
   const dragWidth = useRef<{ startX: number; startWidth: number; lastWidth: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
