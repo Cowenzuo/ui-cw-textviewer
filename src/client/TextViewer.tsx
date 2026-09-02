@@ -46,7 +46,7 @@
  * garbage. The active theme is projected onto Shiki's light/dark themes by
  * re-rendering on `body[data-ds-dark-theme]` changes.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { NS } from './locales.ts'
@@ -260,7 +260,18 @@ function TextStream(props: {
   const scrollRef = useRef<HTMLDivElement>(null)
   // The plain surface's pre: appends happen imperatively so the browser
   // never rewrites already-inserted text (see the append-only strategy).
-  const plainRef = useRef<HTMLPreElement>(null)
+  // A CALLBACK ref (stable identity) so mount/unmount are observable: the
+  // surface mounts and unmounts with the view mode (render/source toggles,
+  // fallback switches) — content that streamed in while it was UNMOUNTED
+  // must be caught up on the next mount, and the append effect below only
+  // runs on chunk changes (the empty-raw-mode regression: toggling markdown
+  // to source mounted an empty pre with no new chunk to trigger the sync).
+  const plainPreRef = useRef<HTMLPreElement | null>(null)
+  const [plainSyncTick, setPlainSyncTick] = useState(0)
+  const plainRef = useCallback((el: HTMLPreElement | null): void => {
+    plainPreRef.current = el
+    if (el !== null) setPlainSyncTick(tick => tick + 1)
+  }, [])
   const lastAppendedRef = useRef(0)
   // Bytes appended so far (the next chunk's offset); a ref keeps it out of
   // render cycles and immune to stale closures in the scroll handler.
@@ -374,9 +385,11 @@ function TextStream(props: {
 
   // Append-only plain surface: insert each new chunk's text node into the
   // pre; the browser keeps the old text untouched (React never rewrites it).
-  // A chunk-count reset (file switch) clears the pre first.
+  // A chunk-count reset (file switch) clears the pre first. Re-runs on
+  // plainSyncTick (a mount of the pre) so content that arrived while the
+  // surface was unmounted is caught up.
   useLayoutEffect(() => {
-    const el = plainRef.current
+    const el = plainPreRef.current
     if (el === null) return
     let from = lastAppendedRef.current
     if (from > chunks.length) {
@@ -387,7 +400,7 @@ function TextStream(props: {
       el.append(document.createTextNode(chunks[i]!))
     }
     lastAppendedRef.current = chunks.length
-  }, [chunks])
+  }, [chunks, plainSyncTick])
 
   const kind = rendererFor(file.name)
   const lang = langFor(file.name)
