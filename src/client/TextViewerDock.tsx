@@ -276,7 +276,7 @@ export function TextviewerDock(
           {/* Preview region: the whole surface below the title bar. */}
           <div className={css.section} style={{ flexGrow: 1, flexShrink: 1, flexBasis: '0%', minHeight: 0 }}>
             {opened === null ? (
-              <div className={css.message}>{t('viewer.empty')}</div>
+              <div className={css.state}>{t('viewer.empty')}</div>
             ) : (
               <TextViewer
                 root={opened.root}

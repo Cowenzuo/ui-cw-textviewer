@@ -18,6 +18,22 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
+/* Full-region state surfaces (empty / loading / binary / error): the
+   constant display surface must fill the region even when there is no
+   content — a bare flex:none message would collapse the visible area to
+   its own height. */
+.state {
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  overflow: auto;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 /* Bottom status bar: the file's format meta (encoding · size · partial). */
 .statusBar {
   flex: none;

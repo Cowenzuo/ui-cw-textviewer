@@ -105,6 +105,21 @@
   overflow: hidden;
 }
 
+/* Full-region state surface (no file opened yet): the same constant
+   display background as the viewer's own states, so the region never
+   collapses to the message's height. */
+.state {
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  overflow: auto;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .message {
   flex: none; /* states stay readable when the region squeezes */
   padding: 8px 10px;

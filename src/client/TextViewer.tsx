@@ -232,13 +232,13 @@ export function TextViewer(props: {
   return (
     <>
       {file === null ? (
-        <div className={css.message}>{t('viewer.empty')}</div>
+        <div className={css.state}>{t('viewer.empty')}</div>
       ) : error !== null ? (
-        <div className={css.message}>{t('error.load')}：{error}</div>
+        <div className={css.state}>{t('error.load')}：{error}</div>
       ) : meta === null ? (
-        <div className={css.message}>{loading ? t('viewer.loading') : ''}</div>
+        <div className={css.state}>{loading ? t('viewer.loading') : ''}</div>
       ) : meta.binary ? (
-        <div className={css.message}>{t('viewer.binary')}</div>
+        <div className={css.state}>{t('viewer.binary')}</div>
       ) : (
         <div ref={scrollRef} className={css.scroll} onScroll={onScroll}>
           {kind === 'markdown' && rendererReady ? (
