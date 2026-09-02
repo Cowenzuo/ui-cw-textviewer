@@ -101,7 +101,7 @@ pnpm build     # 生成产物 lib/index.js + lib/client.js + lib/renderer.js
 
 ```sh
 pnpm typecheck                    # tsc --noEmit
-pnpm test                         # vitest（18 个：解析/端点/真文件集成）
+pnpm test                         # vitest（20 个：解析/端点/真文件集成 + 渲染包 L4）
 pnpm build:watch                  # client 面 watch → HMR 热更
 .\publish.ps1                     # 一键发布：build+test → npm pack → 上架
                                   #   %USERPROFILE%\.dsh\profiles\web\vendor
