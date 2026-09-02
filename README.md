@@ -16,13 +16,16 @@
    本插件在 **root 上下文**订阅接收（插件 fiber 是兄弟作用域，cordis 上下文
    过滤只匹配发出者的祖先，普通 `ctx.on` 收不到）；同一文件重复点击不重载
 2. **布局**：独立右 dock，与 ui-cw-fileexplorer 并排（坐在其左侧）；两插件宽度
-   变量联动，共同推挤官方 UI；自身可拖宽（200–720px）、整体收起为全高 rail
+   变量联动，共同推挤官方 UI；宽度上限为动态极限（视口 − 侧栏 − fileexplorer
+   最小宽，即压到其他面板地板前可一直撑大）；**默认隐藏**，首次点击文件才
+   出现；隐藏 = 彻底消失（无 rail、零推挤），文件点击是唯一重新打开入口
 3. **渲染器注册表（预览区，v1）**：
    - `cpp/hpp/h/cc/cxx/…`、`ts/tsx/js/py/java/go/rs/…` → **Shiki**（TextMate
      语法，VS Code 同款着色）+ CSS 计数器行号
    - `md/markdown/mdx` → **react-markdown + remark-gfm**（标题/表格/任务列表等）
    - `yaml/yml/json/toml/ini/…` → Shiki 高亮；其余 → 纯文本（不换行横向滚动）
-   - 新格式 = 在 `EXT_LANGS` / `rendererFor` 加一行，注册表天然可扩展
+   - 新格式 = 在 `EXT_LANGS` / `rendererFor` 加一行，注册表天然可扩展；
+     完整支持清单见 [docs/支持格式.md](docs/支持格式.md)（与代码同步维护）
 4. **主题联动**：监听 `body[data-ds-dark-theme]`（ui-layout 投影），设置切换
    明暗主题时高亮主题（github-light/dark）自动跟随
 5. **文本流**：`read-text` 分块（默认 256KB/块，上限 1MB/块）；滚动到底自动
