@@ -22,6 +22,9 @@ export interface TextviewerClient {
   readText(root: string, path: string, offset: number, limit: number | undefined, encoding: TextviewerEncoding | undefined, signal: AbortSignal): Promise<RpcResult<TextviewerSnapshot>>
   /** Fetch the lazy renderer bundle source (evaluated once, then cached). */
   renderer(signal: AbortSignal): Promise<RpcResult<TextviewerRendererResult>>
+  /** Fetch the lazy DIAGRAM bundle source (the mermaid engine — fetched only
+   * when a diagram actually renders). */
+  rendererDiagram(signal: AbortSignal): Promise<RpcResult<TextviewerRendererResult>>
 }
 
 /**
@@ -47,6 +50,10 @@ export function createTextviewerClient(ctx: Context): TextviewerClient {
     },
     renderer: async (signal) => {
       const result = await connection.rpc.call('/textviewer', 'renderer', {}, signal)
+      return result as RpcResult<TextviewerRendererResult>
+    },
+    rendererDiagram: async (signal) => {
+      const result = await connection.rpc.call('/textviewer', 'renderer-diagram', {}, signal)
       return result as RpcResult<TextviewerRendererResult>
     },
   }

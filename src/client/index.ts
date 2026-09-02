@@ -85,6 +85,13 @@ export function apply(ctx: Context): void {
         if (!result.ok) throw new Error(result.error.message)
         return result.value.code
       },
+      // The DIAGRAM bundle (mermaid engine) is fetched on demand — only when
+      // an .mmd file or a ```mermaid fence actually renders one.
+      rendererDiagramBundle: async () => {
+        const result = await client.rendererDiagram(new AbortController().signal)
+        if (!result.ok) throw new Error(result.error.message)
+        return result.value.code
+      },
       subscribeOpen: (listener) => {
         openListeners.add(listener)
         return () => { openListeners.delete(listener) }

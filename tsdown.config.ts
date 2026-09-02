@@ -183,4 +183,49 @@ const rendererConfig: UserConfig = {
   },
 }
 
-export default [nodeConfig, clientConfig, rendererConfig]
+/**
+ * Lazy diagram renderer bundle: the mermaid engine (DOM-only — it can NEVER
+ * run inside the highlight worker, which evaluates the renderer bundle with
+ * react stubs and no DOM). Built as its own entry and served through the
+ * `renderer-diagram` endpoint so:
+ *  - renderer.js (shiki + markdown) stays mermaid-free — the worker keeps
+ *    fetching/evaluating only what it needs;
+ *  - the ~2MB mermaid engine downloads ONLY when a diagram actually renders
+ *    (.mmd files, or a ```mermaid fence inside markdown).
+ * The bundle's face is a pure render function + one React view; react is an
+ * external (shell-seeded instance), everything else is bundled in.
+ */
+const DIAGRAM_EXTERNALS = ['react', 'react/jsx-runtime'] as const
+
+const diagramConfig: UserConfig = {
+  name: `${ID}/renderer-diagram`,
+  entry: { rendererDiagram: 'src/client/renderer-diagram.tsx' },
+  outDir: 'lib',
+  format: 'cjs',
+  platform: 'browser',
+  target: 'es2024',
+  dts: false,
+  clean: false,
+  deps: {
+    neverBundle: (specifier: string) => (DIAGRAM_EXTERNALS as readonly string[]).includes(specifier),
+    alwaysBundle: (specifier: string) => !(DIAGRAM_EXTERNALS as readonly string[]).includes(specifier),
+  },
+  define: {
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
+    'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
+    'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),
+  },
+  sourcemap: true,
+  plugins: [cssModulesPlugin(ID)],
+  outputOptions: {
+    entryFileNames: 'renderer-diagram.js',
+    // mermaid lazy-loads its diagram types through internal dynamic
+    // import()s — WITHOUT this the bundle would split into ~180 CJS chunks,
+    // but the host serves ONE file through the RPC endpoint (the loader's
+    // require shim cannot resolve relative chunk requires). Inline them all
+    // into the single served artifact.
+    inlineDynamicImports: true,
+  },
+}
+
+export default [nodeConfig, clientConfig, rendererConfig, diagramConfig]

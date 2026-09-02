@@ -40,9 +40,10 @@ import powershell from '@shikijs/langs/powershell'
 import makefile from '@shikijs/langs/makefile'
 import diff from '@shikijs/langs/diff'
 import log from '@shikijs/langs/log'
+import mermaidLang from '@shikijs/langs/mermaid'
 import githubLight from '@shikijs/themes/github-light'
 import githubDark from '@shikijs/themes/github-dark'
-import type { RendererExports } from './renderer-contract.ts'
+import type { MermaidFenceProps, RendererExports } from './renderer-contract.ts'
 import css from './TextViewer.module.css'
 
 /** Lazily-created singleton highlighter (one core, both themes, all v1 langs). */
@@ -53,7 +54,7 @@ export function getHighlighter(): Promise<HighlighterCore> {
     langs: [
       cpp, markdown, yaml, json, javascript, typescript, tsx, jsx, python, java, go, rust,
       bash, sql, xml, cssLang, html, ini, toml, dockerfile, kotlin, swift, php, ruby,
-      powershell, makefile, diff, log,
+      powershell, makefile, diff, log, mermaidLang,
     ].flat(),
     engine: createJavaScriptRegexEngine(),
   })
@@ -90,8 +91,10 @@ export function HighlightedCode(props: { content: string; lang: string; dark: bo
 export function MarkdownView(props: {
   content: string
   onLinkClick?: (href: string, event: React.MouseEvent<HTMLAnchorElement>) => void
+  dark?: boolean
+  mermaidFence?: React.ComponentType<MermaidFenceProps>
 }): React.JSX.Element {
-  const { content, onLinkClick } = props
+  const { content, onLinkClick, dark = false, mermaidFence: Fence } = props
   return (
     <div className={css.md}>
       <ReactMarkdown
@@ -115,6 +118,33 @@ export function MarkdownView(props: {
               }}
             />
           ),
+          // code covers BOTH block fences and inline code — react-markdown
+          // does not say which (the `node` prop only exists with passNode),
+          // so block-ness is inferred: a language class or a newline means a
+          // fenced block (mdast inline code is single-line by construction).
+          code: (codeProps) => {
+            const className = String(codeProps.className ?? '')
+            const text = String(codeProps.children ?? '')
+            const isBlock = className !== '' || text.includes('\n')
+            // ```mermaid fences go to the INJECTED renderer (the main
+            // bundle's lazy DiagramHost); the mermaid engine never rides
+            // inside this bundle. Absent (standalone use, tests, worker) →
+            // the fence renders as its default code block.
+            if (isBlock && className.split(/\s+/).includes('language-mermaid')) {
+              if (Fence === undefined) {
+                return <pre><code className={codeProps.className}>{codeProps.children}</code></pre>
+              }
+              return (
+                <Fence
+                  source={text}
+                  dark={dark}
+                  fallback={<pre className={css.mdFenceFallback}><code className={codeProps.className}>{codeProps.children}</code></pre>}
+                />
+              )
+            }
+            if (isBlock) return <pre><code className={codeProps.className}>{codeProps.children}</code></pre>
+            return <code className={codeProps.className}>{codeProps.children}</code>
+          },
         }}
       >
         {content}

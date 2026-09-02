@@ -4,7 +4,13 @@
  *
  * v1 registry:
  * - `.md/.markdown/.mdx` → markdown view (GFM), provided by the LAZY renderer
- *   bundle (react-markdown)
+ *   bundle (react-markdown); ```mermaid fences inside markdown render as
+ *   diagrams through the INJECTED fence renderer (main bundle → diagram
+ *   bundle), defaulting to code blocks when the engine is unavailable
+ * - `.mmd` → mermaid diagram files: rendered diagram by default, highlighted
+ *   source via the status-bar toggle (the mermaid engine is its OWN lazy
+ *   bundle, renderer-diagram.js — DOM-only, so it must never ride in the
+ *   highlight worker's bundle)
  * - code extensions (cpp/hpp, yaml, ts, py, …) → Shiki (TextMate grammars,
  *   VS Code-quality tokens, line numbers via a CSS counter), also from the
  *   lazy renderer bundle
@@ -47,7 +53,8 @@ import { NS } from './locales.ts'
 import type { TextviewerEncoding, TextviewerOpenEvent, TextviewerSnapshot } from '../contract.ts'
 import { loadRenderer } from './renderer-loader.ts'
 import { highlightInWorker, warmUpWorker } from './renderer-worker.ts'
-import type { RendererExports } from './renderer-contract.ts'
+import type { MermaidFenceProps, RendererExports } from './renderer-contract.ts'
+import { DiagramHost, MermaidFenceHost } from './diagram-host.tsx'
 import css from './TextViewer.module.css'
 
 /** Distance from the bottom that counts as "at the end" (auto-load region). */
@@ -84,6 +91,7 @@ const EXT_LANGS: Record<string, string> = {
   rb: 'ruby',
   diff: 'diff',
   log: 'log',
+  mmd: 'mermaid',
 }
 
 /** Extension-less names (matched case-insensitively against the base name). */
@@ -102,11 +110,14 @@ export function langFor(name: string): string | undefined {
   return EXT_LANGS[lower.slice(dot + 1)]
 }
 
-/** Which renderer a file name gets: markdown, code (highlighted), or plain. */
-export type RendererKind = 'markdown' | 'code' | 'plain'
+/** Which renderer a file name gets: markdown, mermaid (diagram), code, or plain. */
+export type RendererKind = 'markdown' | 'mermaid' | 'code' | 'plain'
 export function rendererFor(name: string): RendererKind {
   const lower = name.toLowerCase()
   if (lower.endsWith('.md') || lower.endsWith('.markdown') || lower.endsWith('.mdx')) return 'markdown'
+  // .mmd: mermaid diagram files — default view is the RENDERED diagram (the
+  // status-bar toggle switches to the highlighted source).
+  if (lower.endsWith('.mmd')) return 'mermaid'
   return langFor(lower) !== undefined ? 'code' : 'plain'
 }
 
@@ -201,6 +212,8 @@ export function TextViewer(props: {
   readText: (root: string, path: string, offset: number, limit: number | undefined, encoding: TextviewerEncoding | undefined, signal: AbortSignal) => Promise<RpcResult<TextviewerSnapshot>>
   /** RPC-backed fetch of the lazy renderer bundle source. */
   rendererBundle: () => Promise<string>
+  /** RPC-backed fetch of the lazy DIAGRAM bundle source (mermaid engine). */
+  rendererDiagramBundle: () => Promise<string>
   /** Open a file through the open-file protocol (markdown local links). */
   openFile(file: TextviewerOpenEvent): void
 }): React.JSX.Element {
@@ -228,10 +241,12 @@ function TextStream(props: {
   readText: (root: string, path: string, offset: number, limit: number | undefined, encoding: TextviewerEncoding | undefined, signal: AbortSignal) => Promise<RpcResult<TextviewerSnapshot>>
   /** RPC-backed fetch of the lazy renderer bundle source. */
   rendererBundle: () => Promise<string>
+  /** RPC-backed fetch of the lazy DIAGRAM bundle source (mermaid engine). */
+  rendererDiagramBundle: () => Promise<string>
   /** Open a file through the open-file protocol (markdown local links). */
   openFile(file: TextviewerOpenEvent): void
 }): React.JSX.Element {
-  const { root, file, dark, t, readText, rendererBundle, openFile } = props
+  const { root, file, dark, t, readText, rendererBundle, rendererDiagramBundle, openFile } = props
   // Chunked text: each appended chunk is its own entry so plain/code render
   // append-only (the markdown view joins them for full-document parsing).
   const [chunks, setChunks] = useState<string[]>([])
@@ -260,8 +275,8 @@ function TextStream(props: {
   // flip back mid-file).
   const encodingRef = useRef<TextviewerEncoding | undefined>(undefined)
 
-  /** Full document text for the markdown renderer (rarely huge). */
-  const mdContent = useMemo(() => chunks.join(''), [chunks])
+  /** Full document text for the markdown/mermaid renderers (rarely huge). */
+  const docContent = useMemo(() => chunks.join(''), [chunks])
 
   // Load the heavy renderer bundle once, on first mount.
   useEffect(() => {
@@ -377,10 +392,52 @@ function TextStream(props: {
   const kind = rendererFor(file.name)
   const lang = langFor(file.name)
 
-  // Code/markdown need the renderer bundle; until it loads (or on failure)
-  // they degrade to the plain surface — never a blank panel.
+  // Code/markdown/mermaid need the renderer bundle; until it loads (or on
+  // failure) they degrade to the plain surface — never a blank panel. The
+  // mermaid DIAGRAM mode does NOT need it (the diagram engine rides its own
+  // bundle + RPC), so its failure hint only appears in source mode.
   const rendererReady = renderer !== null
-  const rendererDown = rendererFailed && (kind === 'code' || kind === 'markdown')
+  const rendererDown = rendererFailed && (kind === 'code' || kind === 'markdown' || (kind === 'mermaid' && rawMode))
+
+  // The ```mermaid fence renderer handed to MarkdownView: STABLE identity
+  // (memoized) so markdown re-renders (chunk appends, theme flips) never
+  // remount the fences; the engine itself stays lazy — DiagramHost fetches
+  // lib/renderer-diagram.js only when a fence actually exists on screen.
+  const mermaidFence = useMemo<React.ComponentType<MermaidFenceProps>>(() => {
+    const labels = { loading: t('viewer.loading'), error: t('viewer.diagramError') }
+    const fetchCode = rendererDiagramBundle
+    return (props: MermaidFenceProps) => (
+      <MermaidFenceHost
+        source={props.source}
+        dark={props.dark}
+        fallback={props.fallback}
+        fetchCode={fetchCode}
+        labels={labels}
+      />
+    )
+  }, [t, rendererDiagramBundle])
+
+  // The mermaid diagram pane (a .mmd file in diagram mode).
+  const diagramPane = ((): React.JSX.Element => (
+    <DiagramHost
+      source={docContent}
+      dark={dark}
+      fetchCode={rendererDiagramBundle}
+      labels={{ loading: t('viewer.loading'), error: t('viewer.diagramError') }}
+      loading={null}
+      // Engine unavailable → show the highlighted source instead (or the
+      // plain surface when even the renderer bundle is down): content lives.
+      fallback={rendererReady && lang !== undefined
+        ? (
+          <div className={css.chunks}>
+            {chunks.map((chunk, index) => (
+              <HighlightedChunk key={index} content={chunk} lang={lang} dark={dark} fallback={renderer} />
+            ))}
+          </div>
+        )
+        : <pre ref={plainRef} className={css.plain} />}
+    />
+  ))()
 
   /**
    * Markdown link interceptor: web links open in a NEW tab (the app never
@@ -425,7 +482,22 @@ function TextStream(props: {
       ) : (
         <div ref={scrollRef} className={css.scroll} onScroll={onScroll}>
           {kind === 'markdown' && rendererReady && !rawMode ? (
-            <renderer.MarkdownView content={mdContent} onLinkClick={handleLinkClick} />
+            <renderer.MarkdownView
+              content={docContent}
+              onLinkClick={handleLinkClick}
+              dark={dark}
+              mermaidFence={mermaidFence}
+            />
+          ) : kind === 'mermaid' && !rawMode ? (
+            // Diagram mode: the lazy mermaid pane (see diagramPane above).
+            diagramPane
+          ) : kind === 'mermaid' && rawMode && lang !== undefined && rendererReady ? (
+            // Source mode: the whole file highlighted as mermaid code.
+            <div className={css.chunks}>
+              {chunks.map((chunk, index) => (
+                <HighlightedChunk key={index} content={chunk} lang={lang} dark={dark} fallback={renderer} />
+              ))}
+            </div>
           ) : kind === 'code' && lang !== undefined && rendererReady ? (
             <div className={css.chunks}>
               {chunks.map((chunk, index) => (
@@ -439,18 +511,20 @@ function TextStream(props: {
           {meta.truncated && <div className={css.moreHint}>{t('viewer.more')}</div>}
         </div>
       )}
-      {/* Bottom status bar: the markdown render/source toggle (md only) and
-          the file format meta, right-aligned. */}
+      {/* Bottom status bar: the render/source toggle (markdown: rendered ⇄
+          raw text; mermaid: diagram ⇄ source) and the file format meta. */}
       {meta !== null && (
         <div className={css.statusBar}>
-          {kind === 'markdown' && (
+          {(kind === 'markdown' || kind === 'mermaid') && (
             <button
               type="button"
               className={css.toggleButton}
               aria-pressed={rawMode}
               onClick={() => { setRawMode(current => !current) }}
             >
-              {rawMode ? t('viewer.render') : t('viewer.source')}
+              {kind === 'mermaid'
+                ? (rawMode ? t('viewer.diagram') : t('viewer.source'))
+                : (rawMode ? t('viewer.render') : t('viewer.source'))}
             </button>
           )}
           <span className={css.statusText}>

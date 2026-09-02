@@ -39,6 +39,33 @@ describe('renderer bundle (built artifact)', () => {
     ))
     expect(md).toContain('<h1>')
     expect(md).toContain('<table>')
+
+    // ```mermaid fences WITHOUT the injected fence renderer degrade to the
+    // default code block (the source survives — nothing silently vanishes).
+    const fenced = renderToStaticMarkup(React.createElement(
+      renderer.MarkdownView,
+      { content: '# T\n\n```mermaid\ngraph TD\nA --> B\n```\n' },
+    ))
+    expect(fenced).toContain('language-mermaid')
+    expect(fenced).toContain('graph TD')
+
+    // WITH the injected fence renderer the fence goes to it (a fake marks
+    // the slot); inline code and other fences keep their default shapes.
+    const Fence = (props: { source: string; dark: boolean }): React.JSX.Element =>
+      React.createElement('div', { 'data-fence': '1' }, `FENCED:${props.source}:${props.dark}`)
+    const fenced2 = renderToStaticMarkup(React.createElement(
+      renderer.MarkdownView,
+      {
+        content: '# T\n\n```mermaid\ngraph LR\nA --> B\n```\n\n`inline`',
+        dark: true,
+        mermaidFence: Fence,
+      },
+    ))
+    expect(fenced2).toContain('data-fence')
+    expect(fenced2).toContain('FENCED:graph LR')
+    // dark rides through to the fence (the trailing newline of the mdast
+    // code value sits between source and the dark marker).
+    expect(fenced2).toContain(':true')
   })
 
   it.skipIf(!existsSync(BUNDLE))('rejects unknown requires loudly (build-drift net)', async () => {

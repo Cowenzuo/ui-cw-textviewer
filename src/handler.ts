@@ -44,11 +44,22 @@ export interface TextviewerHandlerOptions {
    * without a build.
    */
   readRenderer?: () => Promise<string>
+  /**
+   * Lazy DIAGRAM renderer bundle reader (the mermaid engine — a separate
+   * artifact so the highlight worker never fetches a DOM-only bundle).
+   * Defaults to lib/renderer-diagram.js; tests inject a fake.
+   */
+  readRendererDiagram?: () => Promise<string>
 }
 
 /** Default renderer-bundle reader: the built lib/renderer.js beside lib/index.js. */
 const defaultReadRenderer = async (): Promise<string> => {
   return readFile(fileURLToPath(new URL('./renderer.js', import.meta.url)), 'utf8')
+}
+
+/** Default diagram-bundle reader: the built lib/renderer-diagram.js. */
+const defaultReadRendererDiagram = async (): Promise<string> => {
+  return readFile(fileURLToPath(new URL('./renderer-diagram.js', import.meta.url)), 'utf8')
 }
 
 /** Clamp a client-submitted read size into [1, READ_MAX_LIMIT]. */
@@ -269,8 +280,9 @@ export async function readTextChunk(
  */
 export function createTextviewerHandler(options: TextviewerHandlerOptions = {}): ConnectionRpcHandler {
   const readRenderer = options.readRenderer ?? defaultReadRenderer
+  const readRendererDiagram = options.readRendererDiagram ?? defaultReadRendererDiagram
   return async (endpoint, payload, signal): Promise<RpcResult<unknown>> => {
-    if (endpoint !== 'read-text' && endpoint !== 'renderer') {
+    if (endpoint !== 'read-text' && endpoint !== 'renderer' && endpoint !== 'renderer-diagram') {
       return {
         ok: false,
         error: {
@@ -280,22 +292,24 @@ export function createTextviewerHandler(options: TextviewerHandlerOptions = {}):
         },
       }
     }
-    if (endpoint === 'renderer') {
-      // Serves the lazy renderer bundle source; no path inputs, so there is
-      // nothing to scope — a build-less deployment surfaces the failure.
+    // Serves a lazy bundle source; no path inputs, so there is nothing to
+    // scope — a build-less deployment surfaces the failure.
+    const serveBundle = async (name: 'renderer' | 'renderer-diagram', reader: () => Promise<string>): Promise<RpcResult<unknown>> => {
       if (signal.aborted) {
-        return { ok: false, error: { code: 'cancelled', message: 'textviewer renderer was aborted', details: {} } }
+        return { ok: false, error: { code: 'cancelled', message: `textviewer ${name} was aborted`, details: {} } }
       }
       try {
-        const code = await readRenderer()
+        const code = await reader()
         return { ok: true, value: { code } satisfies TextviewerRendererResult }
       } catch (error) {
         return {
           ok: false,
-          error: { code: 'internal', message: `renderer bundle unavailable: ${error instanceof Error ? error.message : String(error)}`, details: {} },
+          error: { code: 'internal', message: `${name} bundle unavailable: ${error instanceof Error ? error.message : String(error)}`, details: {} },
         }
       }
     }
+    if (endpoint === 'renderer') return serveBundle('renderer', readRenderer)
+    if (endpoint === 'renderer-diagram') return serveBundle('renderer-diagram', readRendererDiagram)
     // read-text
     const readPayload = payload as TextviewerReadRequest | null
     const readRoot = readPayload?.root

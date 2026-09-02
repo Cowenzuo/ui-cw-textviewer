@@ -128,6 +128,23 @@ describe('textviewer handler', () => {
     expect(result.ok ? '' : result.error.message).toContain('missing')
   })
 
+  it('serves the lazy DIAGRAM bundle through the renderer-diagram endpoint', async () => {
+    const handler = createTextviewerHandler({ readRendererDiagram: async () => '/* mermaid bundle */' })
+    const result = await handler('renderer-diagram', {}, new AbortController().signal)
+    expect(result.ok).toBe(true)
+    const value = (result as { ok: true; value: { code: string } }).value
+    expect(value.code).toContain('mermaid bundle')
+  })
+
+  it('reports an unavailable DIAGRAM bundle', async () => {
+    const handler = createTextviewerHandler({
+      readRendererDiagram: async () => { throw new Error('lib/renderer-diagram.js missing') },
+    })
+    const result = await handler('renderer-diagram', {}, new AbortController().signal)
+    expect(result.ok).toBe(false)
+    expect(result.ok ? '' : result.error.message).toContain('renderer-diagram')
+  })
+
   it('reads a UTF-8 file whole', async () => {
     const file = join(root, 'a.txt')
     await writeFile(file, '第一行\n第二行\n')

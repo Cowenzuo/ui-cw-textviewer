@@ -246,6 +246,72 @@
   text-align: center;
 }
 
+/* Mermaid diagrams (.mmd pane and ```mermaid fences in markdown): the SVG
+   sits directly on the chat-paper surface — the engine paints NO box of its
+   own (themeVariables.background: transparent), consistent with the rest of
+   the viewer. Shared by the main bundle and the diagram bundle (identical
+   content-hash class names; the style-tag guard dedupes injection). */
+.diagram {
+  padding: 4px 0;
+}
+
+.diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Engine-loading slot (keeps the layout stable while renderer-diagram.js
+   downloads; usually blank — renders are fast once loaded). */
+.diagramLoading {
+  min-height: 16px;
+  padding: 4px 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+/* Mermaid syntax-error box: message + the raw source below (content never
+   disappears; the source stays visible until the toggle is used). */
+.diagramError {
+  margin: 10px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-state-error-primary);
+  border-radius: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  word-break: break-word;
+}
+
+.diagramErrorSource {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-primary);
+  white-space: pre;
+  overflow: auto;
+  max-height: 240px;
+}
+
+/* A ```mermaid fence's fallback (the diagram engine could not load): styled
+   like the markdown code blocks, inside the .md surface. */
+.mdFenceFallback {
+  margin: 10px 0;
+  padding: 10px 12px;
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  overflow: auto;
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-primary);
+}
+
 .message {
   flex: none; /* states stay readable when the region squeezes */
   padding: 8px 10px;
