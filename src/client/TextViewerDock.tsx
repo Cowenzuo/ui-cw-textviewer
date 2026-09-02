@@ -42,10 +42,10 @@ export interface TextviewerInjected {
 
 /** Expanded width drag bounds. */
 const MIN_WIDTH = 200
-/** Initial width share: the dock opens at 40% of the viewport (the user's
+/** Initial width share: the dock opens at HALF the viewport (the user's
  * preferred default), clamped to the drag floor; the dynamic ceiling effect
  * tightens it further once the sidebar/fileexplorer measurements land. */
-const INITIAL_WIDTH_RATIO = 0.4
+const INITIAL_WIDTH_RATIO = 0.5
 /** The fileexplorer dock's minimum width (its MIN_WIDTH constant) — the
  * viewer's upper limit is computed from it, so the viewer may grow until the
  * sidebar and the fileexplorer dock both sit at their floors. */

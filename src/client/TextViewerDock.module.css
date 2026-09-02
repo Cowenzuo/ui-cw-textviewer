@@ -175,15 +175,16 @@
 }
 
 /* Full-region state surface (no file opened yet): the same constant
-   display background as the viewer's own states, so the region never
-   collapses to the message's height. */
+   display background as the viewer's own states — the CHAT-PAPER color
+   (bg-base), identical to the conversation area in both themes — so the
+   region never collapses to the message's height. */
 .state {
   flex: 1;
   min-height: 0;
   box-sizing: border-box;
   padding: 8px 10px;
   overflow: auto;
-  background: var(--dsw-alias-bg-layer-1);
+  background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   line-height: 18px;

@@ -11,8 +11,12 @@
      file must not leave only a content-sized block painted — the region
      stays fully covered (background-attachment: scroll pins the paint to
      the container box, so the visible area is constant at every scroll
-     position and every content length). */
-  background: var(--dsw-alias-bg-layer-1);
+     position and every content length). The surface is the CONVERSATION
+     AREA's color (bg-base), not the layer tint: in dark mode bg-layer-1
+     is one step LIGHTER than the chat paper (bluish-875 vs bluish-950),
+     which made the viewer read as a foreign strip beside the session.
+     bg-base is identical to the chat in both themes by construction. */
+  background: var(--dsw-alias-bg-base);
   /* Scrollbars follow the theme like the official sidebar's. */
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
@@ -21,14 +25,14 @@
 /* Full-region state surfaces (empty / loading / binary / error): the
    constant display surface must fill the region even when there is no
    content — a bare flex:none message would collapse the visible area to
-   its own height. */
+   its own height. Same chat-paper color as the scroll surface above. */
 .state {
   flex: 1;
   min-height: 0;
   box-sizing: border-box;
   padding: 8px 10px;
   overflow: auto;
-  background: var(--dsw-alias-bg-layer-1);
+  background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   line-height: 18px;
@@ -173,18 +177,25 @@
   color: var(--dsw-alias-state-business-primary);
 }
 
+/* Markdown inline code: a chip OUTLINED on the chat paper, not tinted —
+   every content background follows the session area's color (bg-base), so
+   structure comes from the border, never from a background shade. */
 .md :global(code) {
   font-family: var(--ds-font-family-code);
   font-size: 12px;
-  background: var(--dsw-alias-interactive-bg-hover);
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 4px;
   padding: 1px 4px;
 }
 
+/* Fenced code blocks: same chat-paper background, distinguished from the
+   surrounding text by a hairline outline only. */
 .md :global(pre) {
   margin: 10px 0;
   padding: 10px 12px;
-  background: var(--dsw-alias-interactive-bg-hover);
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   overflow: auto;
 }
@@ -213,7 +224,7 @@
 }
 
 .md :global(th) {
-  background: var(--dsw-alias-interactive-bg-hover);
+  background: var(--dsw-alias-bg-base);
 }
 
 .md :global(hr) {
