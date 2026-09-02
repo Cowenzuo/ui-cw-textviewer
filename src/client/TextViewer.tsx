@@ -403,7 +403,13 @@ function TextStream(props: {
       // Malformed escapes (a literal % outside a valid sequence): keep raw.
     }
     const resolved = resolveLocalLink(decoded, dirnamePath(file.path))
-    openFile({ name: basenamePath(resolved), path: resolved, root })
+    // A LINK may point anywhere — the root FOLLOWS the file (its own
+    // directory), instead of staying at the session workspace: the lock's
+    // guardrail semantics (no accidental escape via the tree) stay intact
+    // while links keep their "point at it, open it" meaning. read-text
+    // still validates path-within-root, so only this exact file is readable
+    // under this root.
+    openFile({ name: basenamePath(resolved), path: resolved, root: dirnamePath(resolved) })
   }
 
   return (
