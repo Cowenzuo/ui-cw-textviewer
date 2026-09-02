@@ -136,8 +136,10 @@ function basenamePath(path: string): string {
 /**
  * Resolve a markdown link's local file path: relative links join against
  * the viewed file's directory, `..` collapses (never above the drive root),
- * and drive-letter/UNC forms stay absolute. Windows separators normalize to
- * `/` so the server-side workspace lock compares cleanly.
+ * and drive-letter/UNC forms stay absolute. Output uses BACKSLASHES (the
+ * platform form the server's workspace-lock compares with — forward slashes
+ * would never satisfy `isWithin` on Windows and every link would read as
+ * "escapes the locked workspace root").
  */
 export function resolveLocalLink(href: string, baseDir: string): string {
   const clean = (p: string): string => p.replace(/\\/g, '/')
@@ -151,7 +153,7 @@ export function resolveLocalLink(href: string, baseDir: string): string {
     out.push(part)
   }
   const joined = out.join('/')
-  return target.startsWith('//') ? `//${joined}` : joined
+  return (target.startsWith('//') ? `//${joined}` : joined).replace(/\//g, '\\')
 }
 
 /**
