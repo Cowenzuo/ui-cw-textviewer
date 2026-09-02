@@ -262,15 +262,20 @@ function TextStream(props: {
   // never rewrites already-inserted text (see the append-only strategy).
   // A CALLBACK ref (stable identity) so mount/unmount are observable: the
   // surface mounts and unmounts with the view mode (render/source toggles,
-  // fallback switches) — content that streamed in while it was UNMOUNTED
-  // must be caught up on the next mount, and the append effect below only
-  // runs on chunk changes (the empty-raw-mode regression: toggling markdown
-  // to source mounted an empty pre with no new chunk to trigger the sync).
+  // fallback switches). A FRESH pre carries NO text — the lastAppendedRef
+  // bookkeeping belongs to the previous (unmounted) element, so the mount
+  // resets it to zero and bumps a tick; the append effect then re-fills the
+  // whole surface. (Without the reset, a markdown file whose first chunk
+  // arrived while an earlier pre instance was briefly mounted would remount
+  // an EMPTY pre whose bookkeeping said "already appended" — the
+  // empty-source-mode regression.)
   const plainPreRef = useRef<HTMLPreElement | null>(null)
   const [plainSyncTick, setPlainSyncTick] = useState(0)
   const plainRef = useCallback((el: HTMLPreElement | null): void => {
     plainPreRef.current = el
-    if (el !== null) setPlainSyncTick(tick => tick + 1)
+    if (el === null) return
+    lastAppendedRef.current = 0
+    setPlainSyncTick(tick => tick + 1)
   }, [])
   const lastAppendedRef = useRef(0)
   // Bytes appended so far (the next chunk's offset); a ref keeps it out of
@@ -386,8 +391,8 @@ function TextStream(props: {
   // Append-only plain surface: insert each new chunk's text node into the
   // pre; the browser keeps the old text untouched (React never rewrites it).
   // A chunk-count reset (file switch) clears the pre first. Re-runs on
-  // plainSyncTick (a mount of the pre) so content that arrived while the
-  // surface was unmounted is caught up.
+  // plainSyncTick (a fresh mount of the pre, whose bookkeeping was reset to
+  // zero by the ref callback) to re-fill the surface from scratch.
   useLayoutEffect(() => {
     const el = plainPreRef.current
     if (el === null) return
