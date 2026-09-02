@@ -15,6 +15,8 @@ export const zh = {
   'viewer.binary': '二进制文件，暂不支持预览',
   'viewer.more': '已加载部分内容，滚动到底部继续加载',
   'viewer.too-large': '文件过大，仅预览前 2MB',
+  'viewer.source': '查看源码',
+  'viewer.render': '渲染视图',
   'error.load': '无法读取该文件',
 } as const
 
@@ -28,6 +30,8 @@ export const en: Record<keyof typeof zh, string> = {
   'viewer.binary': 'Binary file — preview not supported',
   'viewer.more': 'Partial content loaded — scroll to the bottom to load more',
   'viewer.too-large': 'File too large — previewing the first 2MB only',
+  'viewer.source': 'View source',
+  'viewer.render': 'Render view',
   'error.load': 'Unable to read this file',
 }
 

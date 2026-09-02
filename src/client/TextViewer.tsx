@@ -119,6 +119,8 @@ export function TextViewer(props: {
   const [tooLarge, setTooLarge] = useState(false)
   const [renderer, setRenderer] = useState<RendererExports | null>(null)
   const [rendererFailed, setRendererFailed] = useState(false)
+  // Markdown view mode: false = rendered (default), true = raw source text.
+  const [rawMode, setRawMode] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   // Bytes appended so far (the next chunk's offset); a ref keeps it out of
   // render cycles and immune to stale closures in the scroll handler.
@@ -177,6 +179,7 @@ export function TextViewer(props: {
     setMeta(null)
     setError(null)
     setTooLarge(false)
+    setRawMode(false)
     bytesRef.current = 0
     loadingRef.current = false
     atBottomRef.current = false
@@ -241,7 +244,7 @@ export function TextViewer(props: {
         <div className={css.state}>{t('viewer.binary')}</div>
       ) : (
         <div ref={scrollRef} className={css.scroll} onScroll={onScroll}>
-          {kind === 'markdown' && rendererReady ? (
+          {kind === 'markdown' && rendererReady && !rawMode ? (
             <renderer.MarkdownView content={content} />
           ) : kind === 'code' && lang !== undefined && rendererReady ? (
             <renderer.HighlightedCode content={content} lang={lang} dark={dark} />
@@ -253,10 +256,20 @@ export function TextViewer(props: {
           {tooLarge && <div className={css.moreHint}>{t('viewer.too-large')}</div>}
         </div>
       )}
-      {/* Bottom status bar: the file format meta (the header row is gone —
-          the file name lives in the dock title). */}
+      {/* Bottom status bar: the markdown render/source toggle (md only) and
+          the file format meta, right-aligned. */}
       {meta !== null && (
         <div className={css.statusBar}>
+          {kind === 'markdown' && (
+            <button
+              type="button"
+              className={css.toggleButton}
+              aria-pressed={rawMode}
+              onClick={() => { setRawMode(current => !current) }}
+            >
+              {rawMode ? t('viewer.render') : t('viewer.source')}
+            </button>
+          )}
           <span className={css.statusText}>
             {`${meta.encoding} · ${formatSize(meta.size)}${meta.truncated ? ' · 部分' : ''}`}
           </span>

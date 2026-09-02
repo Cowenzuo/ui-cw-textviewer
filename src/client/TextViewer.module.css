@@ -35,17 +35,42 @@
 }
 
 /* Bottom status bar: the file's format meta (encoding · size · partial),
-   right-aligned. */
+   right-aligned; markdown files carry a render/source toggle before it. */
 .statusBar {
   flex: none;
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 8px;
   height: 24px;
   padding: 0 10px;
   box-sizing: border-box;
   border-top: 1px solid var(--dsw-alias-border-l2);
   min-width: 0;
+}
+
+/* Markdown render/source toggle: small text button, keyboard focus only. */
+.toggleButton {
+  flex: none;
+  border: none;
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+  outline: none;
+}
+
+.toggleButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.toggleButton:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: -1px;
 }
 
 .statusText {
