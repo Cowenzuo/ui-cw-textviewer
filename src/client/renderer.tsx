@@ -96,6 +96,12 @@ export function MarkdownView(props: {
     <div className={css.md}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        // Identity transform: the default strips local file paths (absolute
+        // Windows paths become href="") and percent-encodes the rest. The
+        // click interceptor owns navigation (every click is preventDefaulted
+        // and routed: web → new tab, local → viewer), so hrefs never reach
+        // the browser's navigator.
+        urlTransform={(url) => url}
         components={{
           a: (anchorProps) => (
             <a

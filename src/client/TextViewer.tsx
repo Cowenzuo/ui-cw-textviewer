@@ -384,15 +384,25 @@ function TextStream(props: {
    * Markdown link interceptor: web links open in a NEW tab (the app never
    * navigates away — the blank-page complaint); local file links resolve
    * against the viewed file's directory and re-enter the open-file protocol
-   * (the server-side workspace lock still applies).
+   * (the server-side workspace lock still applies). react-markdown
+   * PERCENT-ENCODES local hrefs (Chinese names, spaces), so the href is
+   * decoded before resolving; an empty href (the default urlTransform
+   * strips unsafe/absolute paths) and in-page `#` anchors do nothing.
    */
   const handleLinkClick = (href: string, event: React.MouseEvent<HTMLAnchorElement>): void => {
     event.preventDefault()
+    if (href === '' || href.startsWith('#')) return
     if (/^(https?:|mailto:|tel:)/i.test(href)) {
       window.open(href, '_blank', 'noopener,noreferrer')
       return
     }
-    const resolved = resolveLocalLink(href, dirnamePath(file.path))
+    let decoded = href
+    try {
+      decoded = decodeURIComponent(href)
+    } catch {
+      // Malformed escapes (a literal % outside a valid sequence): keep raw.
+    }
+    const resolved = resolveLocalLink(decoded, dirnamePath(file.path))
     openFile({ name: basenamePath(resolved), path: resolved, root })
   }
 
