@@ -106,7 +106,9 @@ export function TextviewerDock(
   // Default hidden: with no file opened yet there is nothing to show (the
   // first file click brings the panel up).
   const [expanded, setExpanded] = useState(false)
-  const [width, setWidth] = useState(() => Math.max(MIN_WIDTH, Math.round(window.innerWidth * INITIAL_WIDTH_RATIO)))
+  // RATIO state: the panel width is always `ratio × viewport` (see widthPx),
+  // so window resizes scale it proportionally; drags edit the ratio.
+  const [ratio, setRatio] = useState(INITIAL_WIDTH_RATIO)
   const [dragging, setDragging] = useState(false)
   const dragWidth = useRef<{ startX: number; startWidth: number; lastWidth: number } | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -160,11 +162,12 @@ export function TextviewerDock(
     }
   }, [])
   const maxWidth = Math.max(MIN_WIDTH, viewportW - sidebarW - (hasFileexplorer ? FILEEXPLORER_MIN_WIDTH : 0))
-  // A viewport/sidebar shrink must not leave the panel wider than the new
-  // ceiling (clamped silently, without a drag).
-  useEffect(() => {
-    setWidth(current => Math.min(current, maxWidth))
-  }, [maxWidth])
+  // RATIO-based width: the panel is always `ratio × viewport`, so window
+  // resizes scale it proportionally instead of squeezing the other
+  // occupants around a fixed px width. The ceiling clamps the px value when
+  // the viewport is too small (the ratio re-asserts itself when it grows
+  // back). The drag edits the RATIO (committed on pointerup).
+  const widthPx = Math.min(Math.round(viewportW * ratio), maxWidth)
 
   // Mount the push stylesheet once; the width variables below drive it.
   useEffect(() => {
@@ -180,8 +183,8 @@ export function TextviewerDock(
   // remains, reopening happens only through a file click).
   useEffect(() => {
     if (dragging) return // the drag loop writes the variable directly
-    document.documentElement.style.setProperty(WIDTH_VAR, expanded ? `${width}px` : '0px')
-  }, [expanded, width, dragging])
+    document.documentElement.style.setProperty(WIDTH_VAR, expanded ? `${widthPx}px` : '0px')
+  }, [expanded, widthPx, dragging])
 
   /** Write the current drag width straight to the DOM (zero React renders). */
   const applyDragWidth = (next: number): void => {
@@ -194,7 +197,7 @@ export function TextviewerDock(
   const onWidthPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
-    dragWidth.current = { startX: event.clientX, startWidth: width, lastWidth: width }
+    dragWidth.current = { startX: event.clientX, startWidth: widthPx, lastWidth: widthPx }
     setDragging(true)
     document.documentElement.dataset.dshTextviewerDragging = ''
   }
@@ -209,7 +212,9 @@ export function TextviewerDock(
     setDragging(false)
     delete document.documentElement.dataset.dshTextviewerDragging
     event.currentTarget.releasePointerCapture(event.pointerId)
-    if (current !== null) setWidth(current.lastWidth)
+    // Commit the drag as a RATIO of the viewport, so window resizes keep
+    // scaling the panel proportionally.
+    if (current !== null) setRatio(current.lastWidth / window.innerWidth)
   }
 
   return (
@@ -239,7 +244,7 @@ export function TextviewerDock(
         flexDirection: 'column',
         boxSizing: 'border-box',
         overflow: 'hidden',
-        width: expanded ? width : 0,
+        width: expanded ? widthPx : 0,
         // The transition animates expand and re-arms after a drag; while
         // dragging it is off so the pointer feels 1:1.
         transition: dragging ? 'none' : 'width 160ms ease',
