@@ -50,8 +50,6 @@ import { highlightInWorker, warmUpWorker } from './renderer-worker.ts'
 import type { RendererExports } from './renderer-contract.ts'
 import css from './TextViewer.module.css'
 
-/** Preview bound: chunked reads stop appending past this many bytes. */
-const MAX_VIEW_BYTES = 2 * 1024 * 1024
 /** Distance from the bottom that counts as "at the end" (auto-load region). */
 const NEAR_BOTTOM_PX = 120
 /** Distance from the very bottom that counts as "pinned" (streaming only for
@@ -177,7 +175,6 @@ export function TextViewer(props: {
   const [meta, setMeta] = useState<{ size: number; encoding: string; truncated: boolean; binary: boolean } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [tooLarge, setTooLarge] = useState(false)
   const [renderer, setRenderer] = useState<RendererExports | null>(null)
   const [rendererFailed, setRendererFailed] = useState(false)
   // Markdown view mode: false = rendered (default), true = raw source text.
@@ -238,7 +235,6 @@ export function TextViewer(props: {
   const loadMore = (): void => {
     if (file === null || meta === null || meta.binary || loadingRef.current) return
     if (!meta.truncated) return
-    if (bytesRef.current >= MAX_VIEW_BYTES) { setTooLarge(true); return }
     const target = file.path
     loadingRef.current = true
     setLoading(true)
@@ -259,7 +255,6 @@ export function TextViewer(props: {
     setChunks([])
     setMeta(null)
     setError(null)
-    setTooLarge(false)
     setRawMode(false)
     bytesRef.current = 0
     loadingRef.current = false
@@ -366,8 +361,7 @@ export function TextViewer(props: {
             <pre ref={plainRef} className={css.plain} />
           )}
           {rendererDown && <div className={css.moreHint}>{t('error.load')}</div>}
-          {meta.truncated && !tooLarge && <div className={css.moreHint}>{t('viewer.more')}</div>}
-          {tooLarge && <div className={css.moreHint}>{t('viewer.too-large')}</div>}
+          {meta.truncated && <div className={css.moreHint}>{t('viewer.more')}</div>}
         </div>
       )}
       {/* Bottom status bar: the markdown render/source toggle (md only) and
