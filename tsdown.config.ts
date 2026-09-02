@@ -220,11 +220,11 @@ const diagramConfig: UserConfig = {
   outputOptions: {
     entryFileNames: 'renderer-diagram.js',
     // mermaid lazy-loads its diagram types through internal dynamic
-    // import()s — WITHOUT this the bundle would split into ~180 CJS chunks,
-    // but the host serves ONE file through the RPC endpoint (the loader's
-    // require shim cannot resolve relative chunk requires). Inline them all
-    // into the single served artifact.
-    inlineDynamicImports: true,
+    // import()s — WITHOUT disabling splitting the bundle would split into
+    // ~180 CJS chunks, but the host serves ONE file through the RPC endpoint
+    // (the loader's require shim cannot resolve relative chunk requires).
+    // Inline them all into the single served artifact.
+    codeSplitting: false,
   },
 }
 
