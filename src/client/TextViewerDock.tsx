@@ -145,6 +145,12 @@ export function TextviewerDock(
     historyRef.current = next
     setHistory(next)
     saveHistory(next)
+    // EVERY open path funnels through here (explorer click / markdown link /
+    // history entry), so ask the fileexplorer to sync its selection — the
+    // explorer itself ignores paths outside its current workspace, which
+    // makes broadcasting unconditional safe. Placed BEFORE the reload
+    // dedupe: a repeat open of the same file must still re-sync the tree.
+    selectFile({ name: file.name, path: file.path })
     if (lastOpenRef.current !== null
       && lastOpenRef.current.root === file.root && lastOpenRef.current.path === file.path) return
     lastOpenRef.current = { root: file.root, path: file.path }
@@ -331,8 +337,10 @@ export function TextviewerDock(
                     title={entry.path}
                     onClick={() => {
                       setHistoryOpen(false)
+                      // The open funnels through the dock's shared handler,
+                      // which also broadcasts the selection sync — no
+                      // separate selectFile call needed here.
                       openFile({ name: entry.name, path: entry.path, root: dirnameOf(entry.path) })
-                      selectFile({ name: entry.name, path: entry.path })
                     }}
                   >
                     <span className={css.historyName}>{entry.name}</span>
