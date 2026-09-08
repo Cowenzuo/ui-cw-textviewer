@@ -1,11 +1,13 @@
 /**
- * ui-cw-textviewer node half: registers the /textviewer RPC channel.
+ * ui-cw-textviewer node half: serves the /textviewer RPC channel.
  *
- * `ctx.connection.rpc.handle` mounts a webserver prefix route with the
- * browser-trust fence and serves RPC envelopes — the same transport the
- * browser half calls through `ctx.connection.rpc.call`. `trusted-host`
- * authority matches the trust class of the directory picker's listing
- * primitives (read-only enumeration and file reads).
+ * The channel is mounted by `registerRpcChannel` (./channel.ts) as a
+ * webServer prefix route from this plugin's own context — deliberately NOT
+ * via `ctx.connection.rpc.handle`, whose internal webServer access cannot
+ * resolve for out-of-tree plugins under the current cordis inject model.
+ * The wire protocol (envelopes + browser-trust fence) is identical to the
+ * harness channel contract, and the browser half calls through
+ * `ctx.connection.rpc.call` unchanged.
  */
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only: HostConnectionService lives in rpc-host.ts, the same module that
@@ -13,13 +15,15 @@ import type { Context } from '@deepseek-ai/cordis'
 // declaration file into the program, so `ctx.connection` typechecks.
 import type { HostConnectionService } from '@deepseek-ai/dsh-client-connection'
 import { createTextviewerHandler } from './handler.ts'
+import { registerRpcChannel } from './channel.ts'
 
-/** Services required before activation: the host Connection transport. */
-export const inject = ['connection']
+/** Services required before activation: Connection (fence) and the webServer the channel mounts onto. */
+export const inject = ['connection', 'webServer']
 
 /** Node half body. */
 export function apply(ctx: Context): void {
-  ctx.effect(() => ctx.connection.rpc.handle(
+  ctx.effect(() => registerRpcChannel(
+    ctx,
     '/textviewer',
     createTextviewerHandler(),
   ), 'ui-cw-textviewer: /textviewer channel')
